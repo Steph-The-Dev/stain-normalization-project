@@ -1,0 +1,38 @@
+# ==========================================
+# 1. Daten & Medien (Niemals hochladen!)
+# ==========================================
+/data/
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+*.svs
+*.ndpi
+*.mp4
+*.avi
+*.mov
+
+# ==========================================
+# 2. Python & Anaconda Caches
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.pytest_cache/
+
+# ==========================================
+# 3. Lokale Umgebungen (Virtual Envs)
+# ==========================================
+env/
+venv/
+.conda/
+.env
+
+# ==========================================
+# 4. OS & Editor (VS Code / Mac / Windows)
+# ==========================================
+.vscode/
+.DS_Store
+Thumbs.db
