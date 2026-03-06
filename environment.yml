@@ -1,0 +1,12 @@
+name: stain_norm_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy
+  - pandas
+  - matplotlib
+  - opencv
+  - jupyter
+  - ipykernel
