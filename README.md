@@ -32,13 +32,12 @@ Um zu verhindern, dass das weiße Trägerglas (Hintergrund) die globalen Bildsta
 git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
 conda env create -f environment.yml
 conda activate stain_norm_env
+```
 
 **2. App starten (GUI Mode)**
 ```bash
 streamlit run app.py
 ```
-
-(Öffnet das interaktive Interface in deinem Standard-Webbrowser).
 
 **3. Tests ausführen (QC Mode)**
 ```bash
