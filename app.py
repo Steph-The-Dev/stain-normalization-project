@@ -61,18 +61,17 @@ with tab_single:
 
 
 # ==========================================
-# TAB 2: BATCH PROCESSING (Cloud Ready via ZIP)
+# TAB 2: BATCH PROCESSING (Mit Preview & ZIP)
 # ==========================================
 import zipfile
 import io
 
 with tab_batch:
     st.header("Cloud Batch Rendering")
-    st.info("Lade mehrere Bilder gleichzeitig hoch. Der Server verarbeitet sie und schnürt dir ein ZIP-Paket zum Download.")
+    st.info("Lade mehrere Bilder hoch. Stelle den Regler anhand der Live-Vorschau des ersten Bildes ein.")
     
     col_batch_up1, col_batch_up2 = st.columns(2)
     with col_batch_up1:
-        # NEU: accept_multiple_files=True erlaubt das Markieren von hunderten Bildern!
         source_files = st.file_uploader("Upload Source Images (Mehrere markieren)", type=["jpg", "png", "tif"], accept_multiple_files=True, key="src_batch")
     with col_batch_up2:
         batch_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_batch")
@@ -86,52 +85,63 @@ with tab_batch:
         else:
             batch_threshold = st.slider("Luma Threshold", 0, 255, 210, key="slider_batch_luma")
 
-    if st.button("🚀 Start Batch Render") and batch_target_file and source_files:
+    # --- NEU: DIE LIVE-VORSCHAU ---
+    if source_files and batch_target_file:
+        st.markdown("### 👁️ Look Dev: Live-Vorschau (Erstes Bild)")
         target_img = load_uploaded_image(batch_target_file)
+        preview_src = load_uploaded_image(source_files[0])
         
-        # Ein virtuelles ZIP-Archiv im Arbeitsspeicher des Servers erstellen
-        zip_buffer = io.BytesIO()
+        # Grading für die Vorschau
+        if mask_method_batch == "HSV (Saturation)":
+            preview_res = normalize_stain_reinhard_hsv_final(preview_src, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
+        else:
+            preview_res = normalize_stain_reinhard_custom(preview_src, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
+            
+        c1, c2, c3 = st.columns(3)
+        c1.image(cv2.cvtColor(preview_src, cv2.COLOR_BGR2RGB), caption=f"Source: {source_files[0].name}", width='stretch')
+        c2.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), caption="Target", width='stretch')
+        c3.image(cv2.cvtColor(preview_res, cv2.COLOR_BGR2RGB), caption="Result Preview", width='stretch')
         
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            for i, file in enumerate(source_files):
-                status_text.text(f"Verarbeite: {file.name} ({i+1}/{len(source_files)})")
+        st.divider()
+
+        # --- DER RENDER PROZESS ---
+        if st.button("🚀 Start Full Batch Render"):
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                # Bild aus dem RAM laden
-                src_img = load_uploaded_image(file)
+                for i, file in enumerate(source_files):
+                    status_text.text(f"Verarbeite: {file.name} ({i+1}/{len(source_files)})")
+                    src_img = load_uploaded_image(file)
+                    
+                    if mask_method_batch == "HSV (Saturation)":
+                        res = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
+                    else:
+                        res = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
+                    
+                    is_success, buffer = cv2.imencode(".png", res)
+                    if is_success:
+                        original_name, _ = os.path.splitext(file.name)
+                        zip_file.writestr(f"{original_name}_normalized.png", buffer.tobytes())
+                    
+                    progress_bar.progress((i + 1) / len(source_files))
                 
-                # Grading anwenden
-                if mask_method_batch == "HSV (Saturation)":
-                    res = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
-                else:
-                    res = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
+                status_text.success("🎉 Batch Render abgeschlossen!")
                 
-                # Fertiges Bild wieder in Bytes umwandeln (als hochwertiges PNG)
-                is_success, buffer = cv2.imencode(".png", res)
-                if is_success:
-                    # Bild in das ZIP-Archiv schreiben
-                    original_name, _ = os.path.splitext(file.name)
-                    zip_file.writestr(f"{original_name}_normalized.png", buffer.tobytes())
-                
-                progress_bar.progress((i + 1) / len(source_files))
-            
-            status_text.success("🎉 Batch Render abgeschlossen! Lade dein ZIP-Archiv herunter.")
-            
-        # Wenn die Schleife fertig ist, den Download-Button anzeigen
-        st.download_button(
-            label="💾 Download Normalized Images (.zip)",
-            data=zip_buffer.getvalue(),
-            file_name="normalized_batch.zip",
-            mime="application/zip"
-        )
+            st.download_button(
+                label="💾 Download Normalized Images (.zip)",
+                data=zip_buffer.getvalue(),
+                file_name="normalized_batch.zip",
+                mime="application/zip"
+            )
 
 # ==========================================
-# TAB 3: VIDEO ANALYSIS & SCENE DETECTION
+# TAB 3: VIDEO ANALYSIS & AUTO-SPLICER
 # ==========================================
 with tab_video:
-    st.header("Video Processing & Cut Detection")
+    st.header("Video Auto-Splicer & Grading")
+    st.info("💡 **Use Case:** Zerschneidet Master-Scanner-Feeds (z.B. von Tissue Microarrays) automatisch in normalisierte Sub-Clips für einzelne Gewebeproben.")
     
     col_vid1, col_vid2 = st.columns(2)
     with col_vid1:
@@ -152,13 +162,11 @@ with tab_video:
         scene_thresh = st.slider("Scene Cut Sensitivity", 10.0, 100.0, 43.5, step=0.5)
 
     if video_file and vid_target_file:
-        if st.button("🎬 Start Video Engine"):
+        if st.button("🎬 Start Auto-Splicer"):
             target_img = load_uploaded_image(vid_target_file)
             
             tfile_in = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
             tfile_in.write(video_file.read())
-            tfile_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-            out_path = tfile_out.name
             
             cap = cv2.VideoCapture(tfile_in.name)
             fps = cap.get(cv2.CAP_PROP_FPS)
@@ -167,57 +175,85 @@ with tab_video:
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
             
-            prev_gray = None
-            cuts = []
-            cooldown = 0
-            
-            vid_progress = st.progress(0)
-            vid_status = st.empty()
-            
-            frame_idx = 0
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret: break
+            # --- NEU: ZIP für Sub-Clips vorbereiten ---
+            zip_buffer_vid = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
                 
-                # Cut Detection
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                if cooldown > 0:
-                    cooldown -= 1
-                elif prev_gray is not None:
-                    diff = np.mean(cv2.absdiff(gray, prev_gray))
-                    if diff > scene_thresh:
-                        cuts.append((frame_idx, frame_idx/fps, diff))
-                        cooldown = 15
-                prev_gray = gray
+                clip_idx = 1
+                temp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                out = cv2.VideoWriter(temp_out.name, fourcc, fps, (width, height))
                 
-                # Normalization
-                try:
-                    if mask_method_vid == "HSV (Saturation)":
-                        norm_frame = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=vid_mask_thresh, target_sat_thresh=vid_mask_thresh)
-                    else:
-                        norm_frame = normalize_stain_reinhard_custom(frame, target_img, src_thresh=vid_mask_thresh, target_thresh=vid_mask_thresh)
-                except:
-                    norm_frame = frame
+                prev_gray = None
+                cooldown = 0
+                frame_idx = 0
                 
-                out.write(norm_frame)
+                vid_progress = st.progress(0)
+                vid_status = st.empty()
+                st.markdown("### 🎞️ Detected Scenes (Thumbnails)")
+                thumbnail_columns = st.columns(4) # Grid für Thumbnails
                 
-                frame_idx += 1
-                if frame_idx % 10 == 0 or frame_idx == total_frames:
-                    vid_progress.progress(frame_idx / total_frames)
-                    vid_status.text(f"Rendere Frame {frame_idx} / {total_frames}...")
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret: break
                     
-            cap.release()
-            out.release()
-            
-            vid_status.success("Render Complete!")
-            
-            with open(out_path, 'rb') as f:
-                st.download_button("💾 Download Normalized Video", f, file_name="normalized_video.mp4", mime="video/mp4")
-            
-            st.subheader("📊 Detected Scene Cuts")
-            st.metric("Total Cuts", len(cuts))
-            if cuts:
-                for c in cuts:
-                    st.write(f"✂️ **Cut bei {c[1]:.2f}s** (Frame {c[0]}) | Diff: {c[2]:.1f}")
+                    # Cut Detection
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    is_cut = False
+                    
+                    if cooldown > 0:
+                        cooldown -= 1
+                    elif prev_gray is not None:
+                        diff = np.mean(cv2.absdiff(gray, prev_gray))
+                        if diff > scene_thresh:
+                            is_cut = True
+                            cooldown = 15
+                    prev_gray = gray
+                    
+                    # --- NEU: Video-Split Logik ---
+                    if is_cut or frame_idx == 0:
+                        # 1. Zeige erstes Bild der neuen Szene im UI
+                        with thumbnail_columns[(clip_idx-1) % 4]:
+                            st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption=f"Scene {clip_idx:03d} (Frame {frame_idx})", width='stretch')
+                            
+                        # 2. Wenn es ein Cut ist, schließe altes Video und packe es ins ZIP
+                        if is_cut:
+                            out.release()
+                            with open(temp_out.name, "rb") as f:
+                                zip_file_vid.writestr(f"scene_{clip_idx:03d}.mp4", f.read())
+                            
+                            clip_idx += 1
+                            temp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                            out = cv2.VideoWriter(temp_out.name, fourcc, fps, (width, height))
+                    
+                    # Normalization & Frame speichern
+                    try:
+                        if mask_method_vid == "HSV (Saturation)":
+                            norm_frame = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=vid_mask_thresh, target_sat_thresh=vid_mask_thresh)
+                        else:
+                            norm_frame = normalize_stain_reinhard_custom(frame, target_img, src_thresh=vid_mask_thresh, target_thresh=vid_mask_thresh)
+                    except:
+                        norm_frame = frame
+                    
+                    out.write(norm_frame)
+                    
+                    frame_idx += 1
+                    if frame_idx % 10 == 0:
+                        vid_progress.progress(frame_idx / total_frames)
+                        vid_status.text(f"Analyzing & Rendering Frame {frame_idx} / {total_frames}...")
+                
+                # Letztes Video noch schließen und einpacken
+                out.release()
+                with open(temp_out.name, "rb") as f:
+                    zip_file_vid.writestr(f"scene_{clip_idx:03d}.mp4", f.read())
+                    
+                cap.release()
+                vid_status.success(f"Render Complete! {clip_idx} Sub-Clips extrahiert.")
+                
+            # ZIP Download Button
+            st.download_button(
+                label="💾 Download Spliced Scenes (.zip)",
+                data=zip_buffer_vid.getvalue(),
+                file_name="normalized_scenes.zip",
+                mime="application/zip"
+            )
