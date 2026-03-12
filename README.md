@@ -45,7 +45,7 @@ For processing continuous WSI scanner feeds (e.g., Tissue Microarrays):
 
 ### Option A: Try it live in the browser (Recommended)
 The app is fully deployed on Streamlit Community Cloud. No installation required.
-👉 **[INSERT_YOUR_STREAMLIT_CLOUD_LINK_HERE]**
+👉 **[(https://stain-normalization-pro.streamlit.app/)]**
 
 ### Option B: Local Installation
 If you want to run the suite locally:
