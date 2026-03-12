@@ -1,38 +1,40 @@
-# ==========================================
-# 1. Daten & Medien (Niemals hochladen!)
-# ==========================================
-/data/
-*.jpg
-*.jpeg
-*.png
-*.tif
-*.tiff
-*.svs
-*.ndpi
-*.mp4
-*.avi
-*.mov
-
-# ==========================================
-# 2. Python & Anaconda Caches
-# ==========================================
+# Python & Environments
 __pycache__/
 *.py[cod]
 *$py.class
-.ipynb_checkpoints/
-.pytest_cache/
-
-# ==========================================
-# 3. Lokale Umgebungen (Virtual Envs)
-# ==========================================
+.env
+.venv
 env/
 venv/
-.conda/
-.env
 
-# ==========================================
-# 4. OS & Editor (VS Code / Mac / Windows)
-# ==========================================
-.vscode/
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Testing
+.pytest_cache/
+
+# OS specific files
 .DS_Store
 Thumbs.db
+
+# ---------------------------------------------------
+# Media & Data (Extrem wichtig für dein Projekt!)
+# ---------------------------------------------------
+# Ignoriere alle Dateien in den Data-Ordnern...
+data/raw/*
+data/processed/*
+# ...ABER behalte die Ordnerstruktur selbst auf GitHub:
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# Ignoriere grundsätzlich alle großen Media-Dateien im Repo
+*.mp4
+*.mov
+*.avi
+*.zip
+*.tif
+*.tiff
+# (Bilder wie .jpg oder .png für das README oder UI-Mockups bleiben erlaubt)
+
+# Streamlit (Falls du später API-Keys nutzt)
+.streamlit/secrets.toml

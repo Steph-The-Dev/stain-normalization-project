@@ -1,59 +1,69 @@
-# 🔬 Histological Stain Normalization (Reinhard Method)
+# 🔬 Histological Stain Normalization Suite
 
-**A modular Python tool with an interactive Streamlit GUI for automated color normalization of H&E stained whole-slide images.**
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Cloud_Ready-FF4B4B.svg)](https://streamlit.io/)
+[![OpenCV](https://img.shields.io/badge/OpenCV-Image_Processing-green.svg)](https://opencv.org/)
+
+**A cloud-ready, interactive computer vision tool bridging video post-production workflows and digital pathology. Designed to normalize H&E whole-slide images and WSI video feeds using smart tissue masking.**
 
 ![App Demo](assets/demo.gif) 
-*(⬆️ Ersetze diesen Platzhalter später mit einem echten GIF deiner App, das du im Ordner `assets/` speicherst)*
+*(⬆️ Note: See the live app for a full demonstration)*
 
-Dieses Projekt entstand im Rahmen der Vorbereitung auf den MSc Applied Information and Data Science an der HSLU. Ziel ist es, Farbvarianzen in der digitalen Pathologie (verursacht durch unterschiedliche Scanner und Färbeprotokolle) zu standardisieren, um eine robuste Datengrundlage für Machine-Learning-Modelle zu schaffen.
+---
 
-## 🧠 Methodik & Domain-Spezifik
-Das Tool nutzt die statistische **Reinhard-Methode** im LAB-Farbraum. 
-Die Besonderheit dieser Implementierung liegt im dynamischen **Tissue-Masking**:
-Um zu verhindern, dass das weiße Trägerglas (Hintergrund) die globalen Bildstatistiken verfälscht, generiert der Algorithmus automatisch eine Maske (wahlweise Luma-Key oder HSV Chroma-Key). Die Helligkeits- und Farbkorrektur wird somit exklusiv auf Basis der tatsächlichen Gewebe-Pixel berechnet.
+## 🧠 The Concept: Post-Production meets Pathology
+In digital pathology, algorithms often fail because tissue scans (Whole Slide Images) from different laboratories exhibit massive color variations. While the statistical **Reinhard Method** is a standard approach to match these colors to a reference target, it often incorporates the bright white background (the glass slide) into its calculations, skewing the math.
 
-## 🛠 Features
-* **Interaktive Web-GUI:** Live-Vorschau und Parameter-Tuning mittels Streamlit.
-* **Modularer Aufbau:** Kern-Logik sauber getrennt in `src/reinhard.py`.
-* **Smart Masking:** Luma-Key (Graustufen) und HSV-Key (Sättigung) auswählbar.
-* **Multi-Format Support:** Akzeptiert `.jpg`, `.png`, `.tif` etc. automatisch.
-* **Automated QC:** Unit-Tests (via `pytest`) garantieren mathematische Stabilität (Zero-Division Protection, Shape/Type-Consistency).
+**The Solution:** Drawing from video post-production (chroma keying), this tool generates a dynamic **HSV Saturation Mask** or **Luma Mask** to isolate the tissue *before* calculating the color statistics. 
 
-## 💻 Tech-Stack
-* **Sprache:** Python 3.10
-* **Framework:** Streamlit (Web-GUI)
-* **Bibliotheken:** OpenCV, NumPy, Matplotlib, Pytest
-* **Umgebung:** Anaconda / Jupyter Notebooks
+## ✨ Key Features & Workflows
 
-## 🚀 Setup & Ausführung
+This suite offers three distinct workflows tailored for research and data engineering:
 
-**1. Installation**
-```bash
-git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
-conda env create -f environment.yml
-conda activate stain_norm_env
-```
+### 1. 📷 Single Image Look Dev
+Interactive before-and-after preview. Upload a source and target image, switch between HSV/Luma keying, and dial in the perfect threshold via a real-time slider.
 
-**2. App starten (GUI Mode)**
-```bash
-streamlit run app.py
-```
+### 2. 📂 Cloud Batch Processing
+Designed for bulk processing. Upload multiple images at once, dial in your mask settings using a live preview of the first image, and render the entire batch into a clean `.zip` archive.
 
-**3. Tests ausführen (QC Mode)**
-```bash
-python -m pytest
-```
+### 3. 🎬 Smart Video Auto-Splicer (Two-Step Workflow)
+For processing continuous WSI scanner feeds (e.g., Tissue Microarrays):
+* **Step 1 (Analysis):** The engine reads the MP4 video, detects hard scene cuts using frame differencing, and physically splices the master file into individual sub-clips.
+* **Step 2 (Individual Look Dev):** The UI generates a thumbnail gallery of all detected scenes. Users can apply individual HSV/Luma thresholds to *each specific scene* with a live preview.
+* **Step 3 (Render):** Renders all color-corrected sub-clips and bundles them into a master `.zip` file.
 
-🗺 Roadmap
+---
 
-    [x] Basis-Implementierung Reinhard-Methode
+## 🏗️ Architecture & Tech Stack
+* **Core Logic:** Python, OpenCV, NumPy (Modularized in `src/reinhard.py`)
+* **Frontend / GUI:** Streamlit (Cloud Deployable)
+* **Quality Assurance:** `pytest` (Unit tests ensuring shape consistency and zero-division protection).
 
-    [x] Tissue-Masking (Luma & HSV)
+---
 
-    [x] Modulare Architektur & Unit Tests
+## 🚀 Run it yourself
 
-    [x] Streamlit Web-GUI
+### Option A: Try it live in the browser (Recommended)
+The app is fully deployed on Streamlit Community Cloud. No installation required.
+👉 **[INSERT_YOUR_STREAMLIT_CLOUD_LINK_HERE]**
 
-    [ ] Next: Video-Skalierung (Verarbeitung von Master-Files)
+### Option B: Local Installation
+If you want to run the suite locally:
 
-    [ ] Next: Automated Scene Detection für Schnitt-Erkennung in WSI-Videos
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/YOUR_USERNAME/stain-normalization-project.git](https://github.com/YOUR_USERNAME/stain-normalization-project.git)
+   cd stain-normalization-project
+   ```
+
+2. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run the Streamlit App:**
+   ```bash
+   streamlit run app.py
+   ```
+---
+*Developed as part of the MSc Applied Information and Data Science at HSLU.*
