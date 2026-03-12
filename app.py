@@ -152,11 +152,10 @@ with tab_batch:
 # ==========================================
 with tab_video:
     st.header("Video Auto-Splicer & Individual Grading")
-    st.info("💡 **Workflow:** 1. Video analysieren & zerschneiden -> 2. Jede Szene individuell einstellen -> 3. Rendern & Downloaden.")
+    st.info("💡 **Workflow:** 1. Video zerschneiden -> 2. Jede Szene (HSV/Luma) via Live-Preview einstellen -> 3. Rendern.")
     
     col_vid1, col_vid2 = st.columns(2)
     with col_vid1:
-        # WICHTIG: on_change löscht den Speicher, wenn ein neues Video kommt!
         video_file = st.file_uploader("Upload WSI Video (MP4)", type=["mp4", "avi", "mov"], on_change=reset_vid_state)
     with col_vid2:
         vid_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_vid")
@@ -189,12 +188,12 @@ with tab_video:
                 cooldown = 0
                 frame_idx = 0
                 current_thumbnail = None
+                current_thumbnail_prev = None
                 
                 vid_progress = st.progress(0)
                 status = st.empty()
                 status.info("Analysiere Video und extrahiere Roh-Clips...")
                 
-                # Leere den Speicher für die neuen Szenen
                 st.session_state.vid_scenes = []
                 
                 while cap.isOpened():
@@ -217,7 +216,6 @@ with tab_video:
                         current_thumbnail = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         if is_cut:
                             out.release()
-                            # Speichere Daten der fertigen Szene im Session State
                             st.session_state.vid_scenes.append({
                                 'id': clip_idx,
                                 'raw_path': temp_out.name,
@@ -228,50 +226,75 @@ with tab_video:
                             out = cv2.VideoWriter(temp_out.name, fourcc, fps, (width, height))
                             
                     current_thumbnail_prev = current_thumbnail
-                    out.write(frame) # Wir schreiben das UNBEARBEITETE Originalbild
+                    out.write(frame)
                     frame_idx += 1
                     
                 # Letzte Szene speichern
                 out.release()
-                st.session_state.vid_scenes.append({
-                    'id': clip_idx,
-                    'raw_path': temp_out.name,
-                    'thumb': current_thumbnail_prev
-                })
+                if current_thumbnail_prev is not None:
+                    st.session_state.vid_scenes.append({
+                        'id': clip_idx,
+                        'raw_path': temp_out.name,
+                        'thumb': current_thumbnail_prev
+                    })
                 cap.release()
                 
-                # Gehe zu Schritt 2 und lade das UI neu
                 st.session_state.vid_step = 2
                 st.rerun()
 
         # ---------------------------------------------------------
-        # SCHRITT 2: INDIVIDUAL GRADING & RENDER
+        # SCHRITT 2: INDIVIDUAL GRADING (Live Preview) & RENDER
         # ---------------------------------------------------------
         elif st.session_state.vid_step == 2:
             st.success(f"✅ Analyse abgeschlossen! {len(st.session_state.vid_scenes)} Szenen extrahiert.")
-            st.markdown("### 🎛️ Step 2: Individual Scene Grading")
+            st.markdown("### 🎛️ Step 2: Individual Scene Look Dev")
             
-            # Globale Masken-Methode
-            mask_method_vid = st.radio("Globale Masking Method für alle Clips", ["HSV (Saturation)", "Luma (Grayscale)"])
+            scene_settings = {}
             
-            # Dictionary zum Speichern der individuellen Slider-Werte
-            scene_thresholds = {}
-            
-            # Baue ein schickes Grid für die Szenen (2 pro Reihe)
-            cols = st.columns(2)
-            for i, scene in enumerate(st.session_state.vid_scenes):
-                with cols[i % 2]:
-                    st.image(scene['thumb'], caption=f"Scene {scene['id']}", use_container_width=True)
-                    # Jeder Clip bekommt seinen EIGENEN Slider!
-                    if mask_method_vid == "HSV (Saturation)":
-                        val = st.slider(f"HSV Threshold (Scene {scene['id']})", 0, 100, 15, key=f"sl_{scene['id']}")
+            # Für jede Szene eine eigene Arbeits-Zeile aufbauen
+            for scene in st.session_state.vid_scenes:
+                st.markdown(f"#### 🎬 Scene {scene['id']}")
+                
+                # Layout: Links Regler, Rechts Bilder
+                col_controls, col_images = st.columns([1, 2])
+                
+                with col_controls:
+                    # Individuelle Weiche pro Clip!
+                    method = st.radio(f"Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key=f"method_{scene['id']}")
+                    
+                    # Passender Slider zur Methode
+                    if method == "HSV (Saturation)":
+                        thresh = st.slider(f"HSV Threshold", 0, 100, 15, key=f"thresh_{scene['id']}")
                     else:
-                        val = st.slider(f"Luma Threshold (Scene {scene['id']})", 0, 255, 210, key=f"sl_{scene['id']}")
-                    scene_thresholds[scene['id']] = val
-                    st.divider()
+                        thresh = st.slider(f"Luma Threshold", 0, 255, 210, key=f"thresh_{scene['id']}")
+                        
+                    # Speichere die Settings für den Render-Loop
+                    scene_settings[scene['id']] = {'method': method, 'thresh': thresh}
+
+                with col_images:
+                    # 1. Bild in BGR für OpenCV umwandeln
+                    thumb_bgr = cv2.cvtColor(scene['thumb'], cv2.COLOR_RGB2BGR)
+                    
+                    # 2. Live-Grading NUR für das Thumbnail berechnen
+                    try:
+                        if method == "HSV (Saturation)":
+                            preview_bgr = normalize_stain_reinhard_hsv_final(thumb_bgr, target_img, src_sat_thresh=thresh, target_sat_thresh=thresh)
+                        else:
+                            preview_bgr = normalize_stain_reinhard_custom(thumb_bgr, target_img, src_thresh=thresh, target_thresh=thresh)
+                        preview_rgb = cv2.cvtColor(preview_bgr, cv2.COLOR_BGR2RGB)
+                    except Exception as e:
+                        preview_rgb = scene['thumb'] # Fallback
+                        st.error(f"Render Error: {e}")
+
+                    # 3. Vorher / Nachher anzeigen
+                    c1, c2 = st.columns(2)
+                    c1.image(scene['thumb'], caption="Before (Raw Input)", use_container_width=True)
+                    c2.image(preview_rgb, caption="After (Live Preview)", use_container_width=True)
+                    
+                st.divider()
 
             # --- FINALE RENDER SCHLEIFE ---
-            if st.button("🚀 Render All Scenes & Create ZIP", use_container_width=True):
+            if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
                 zip_buffer_vid = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
                     
@@ -281,30 +304,29 @@ with tab_video:
                     for idx, scene in enumerate(st.session_state.vid_scenes):
                         render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)}...")
                         
-                        # Roh-Video der Szene laden
                         cap_scene = cv2.VideoCapture(scene['raw_path'])
                         fps = cap_scene.get(cv2.CAP_PROP_FPS)
                         width = int(cap_scene.get(cv2.CAP_PROP_FRAME_WIDTH))
                         height = int(cap_scene.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                         
-                        # Temporäres Output-Video für diese Szene
                         temp_graded = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
                         out_scene = cv2.VideoWriter(temp_graded.name, fourcc, fps, (width, height))
                         
-                        # Individuellen Threshold abrufen
-                        thresh = scene_thresholds[scene['id']]
+                        # Lade die individuell eingestellten Parameter für DIESEN Clip
+                        c_method = scene_settings[scene['id']]['method']
+                        c_thresh = scene_settings[scene['id']]['thresh']
                         
                         while cap_scene.isOpened():
                             ret, frame = cap_scene.read()
                             if not ret: break
                             
-                            # Grading mit dem spezifischen Wert!
+                            # Grading mit der spezifischen Methode und dem Wert!
                             try:
-                                if mask_method_vid == "HSV (Saturation)":
-                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=thresh, target_sat_thresh=thresh)
+                                if c_method == "HSV (Saturation)":
+                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=c_thresh, target_sat_thresh=c_thresh)
                                 else:
-                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=thresh, target_thresh=thresh)
+                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=c_thresh, target_thresh=c_thresh)
                             except:
                                 norm = frame
                                 
@@ -313,7 +335,6 @@ with tab_video:
                         cap_scene.release()
                         out_scene.release()
                         
-                        # Das fertig gegradete Video ins ZIP packen
                         with open(temp_graded.name, "rb") as f:
                             zip_file_vid.writestr(f"graded_scene_{scene['id']:03d}.mp4", f.read())
                             
@@ -321,11 +342,10 @@ with tab_video:
                         
                 render_status.success("🎉 Alle Clips gerendert und verpackt!")
                 
-                # Finaler Download Button
                 st.download_button(
-                    label="💾 Download Graded Scenes (.zip)",
+                    label="💾 Download Spliced & Graded Scenes (.zip)",
                     data=zip_buffer_vid.getvalue(),
-                    file_name="individually_graded_scenes.zip",
+                    file_name="master_graded_scenes.zip",
                     mime="application/zip",
                     use_container_width=True
                 )
