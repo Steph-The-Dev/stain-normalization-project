@@ -10,6 +10,17 @@ from src.reinhard import normalize_stain_reinhard_hsv_final, normalize_stain_rei
 # --- CONFIG ---
 st.set_page_config(page_title="Stain Normalization Pro", page_icon="🔬", layout="wide")
 
+# --- SESSION STATE SETUP (Für den 2-Stufen Video Workflow) ---
+if 'vid_scenes' not in st.session_state:
+    st.session_state.vid_scenes = []
+if 'vid_step' not in st.session_state:
+    st.session_state.vid_step = 1
+
+def reset_vid_state():
+    """Setzt den Video-Speicher zurück, wenn ein neues Video hochgeladen wird."""
+    st.session_state.vid_scenes = []
+    st.session_state.vid_step = 1
+
 # Hilfsfunktion für den Bild-Upload
 def load_uploaded_image(uploaded_file):
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
@@ -137,48 +148,38 @@ with tab_batch:
             )
 
 # ==========================================
-# TAB 3: VIDEO ANALYSIS & AUTO-SPLICER
+# TAB 3: VIDEO ANALYSIS & INDIVIDUAL AUTO-SPLICER
 # ==========================================
 with tab_video:
-    st.header("Video Auto-Splicer & Grading")
-    st.info("💡 **Use Case:** Zerschneidet Master-Scanner-Feeds (z.B. von Tissue Microarrays) automatisch in normalisierte Sub-Clips für einzelne Gewebeproben.")
+    st.header("Video Auto-Splicer & Individual Grading")
+    st.info("💡 **Workflow:** 1. Video analysieren & zerschneiden -> 2. Jede Szene individuell einstellen -> 3. Rendern & Downloaden.")
     
     col_vid1, col_vid2 = st.columns(2)
     with col_vid1:
-        video_file = st.file_uploader("Upload WSI Video (MP4)", type=["mp4", "avi", "mov"])
+        # WICHTIG: on_change löscht den Speicher, wenn ein neues Video kommt!
+        video_file = st.file_uploader("Upload WSI Video (MP4)", type=["mp4", "avi", "mov"], on_change=reset_vid_state)
     with col_vid2:
         vid_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_vid")
 
-    st.markdown("### Settings")
-    col_vset1, col_vset2, col_vset3 = st.columns(3)
-    with col_vset1:
-        mask_method_vid = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_vid")
-    with col_vset2:
-        if mask_method_vid == "HSV (Saturation)":
-            vid_mask_thresh = st.slider("HSV Threshold", 0, 100, 15, key="slider_vid_hsv")
-        else:
-            vid_mask_thresh = st.slider("Luma Threshold", 0, 255, 210, key="slider_vid_luma")
-    with col_vset3:
-        scene_thresh = st.slider("Scene Cut Sensitivity", 10.0, 100.0, 43.5, step=0.5)
-
     if video_file and vid_target_file:
-        if st.button("🎬 Start Auto-Splicer"):
-            target_img = load_uploaded_image(vid_target_file)
+        target_img = load_uploaded_image(vid_target_file)
+        
+        # ---------------------------------------------------------
+        # SCHRITT 1: ANALYSE & CUT DETECTION
+        # ---------------------------------------------------------
+        if st.session_state.vid_step == 1:
+            st.markdown("### 🔍 Step 1: Global Cut Detection Settings")
+            scene_thresh = st.slider("Scene Cut Sensitivity", 10.0, 100.0, 43.5, step=0.5)
             
-            tfile_in = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-            tfile_in.write(video_file.read())
-            
-            cap = cv2.VideoCapture(tfile_in.name)
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            
-            # --- NEU: ZIP für Sub-Clips vorbereiten ---
-            zip_buffer_vid = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
+            if st.button("✂️ Analyze Video & Extract Scenes"):
+                tfile_in = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                tfile_in.write(video_file.read())
+                
+                cap = cv2.VideoCapture(tfile_in.name)
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
                 
                 clip_idx = 1
                 temp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
@@ -187,17 +188,19 @@ with tab_video:
                 prev_gray = None
                 cooldown = 0
                 frame_idx = 0
+                current_thumbnail = None
                 
                 vid_progress = st.progress(0)
-                vid_status = st.empty()
-                st.markdown("### 🎞️ Detected Scenes (Thumbnails)")
-                thumbnail_columns = st.columns(4) # Grid für Thumbnails
+                status = st.empty()
+                status.info("Analysiere Video und extrahiere Roh-Clips...")
+                
+                # Leere den Speicher für die neuen Szenen
+                st.session_state.vid_scenes = []
                 
                 while cap.isOpened():
                     ret, frame = cap.read()
                     if not ret: break
                     
-                    # Cut Detection
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     is_cut = False
                     
@@ -210,50 +213,123 @@ with tab_video:
                             cooldown = 15
                     prev_gray = gray
                     
-                    # --- NEU: Video-Split Logik ---
                     if is_cut or frame_idx == 0:
-                        # 1. Zeige erstes Bild der neuen Szene im UI
-                        with thumbnail_columns[(clip_idx-1) % 4]:
-                            st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption=f"Scene {clip_idx:03d} (Frame {frame_idx})", width='stretch')
-                            
-                        # 2. Wenn es ein Cut ist, schließe altes Video und packe es ins ZIP
+                        current_thumbnail = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         if is_cut:
                             out.release()
-                            with open(temp_out.name, "rb") as f:
-                                zip_file_vid.writestr(f"scene_{clip_idx:03d}.mp4", f.read())
-                            
+                            # Speichere Daten der fertigen Szene im Session State
+                            st.session_state.vid_scenes.append({
+                                'id': clip_idx,
+                                'raw_path': temp_out.name,
+                                'thumb': current_thumbnail_prev
+                            })
                             clip_idx += 1
                             temp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
                             out = cv2.VideoWriter(temp_out.name, fourcc, fps, (width, height))
-                    
-                    # Normalization & Frame speichern
-                    try:
-                        if mask_method_vid == "HSV (Saturation)":
-                            norm_frame = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=vid_mask_thresh, target_sat_thresh=vid_mask_thresh)
-                        else:
-                            norm_frame = normalize_stain_reinhard_custom(frame, target_img, src_thresh=vid_mask_thresh, target_thresh=vid_mask_thresh)
-                    except:
-                        norm_frame = frame
-                    
-                    out.write(norm_frame)
-                    
+                            
+                    current_thumbnail_prev = current_thumbnail
+                    out.write(frame) # Wir schreiben das UNBEARBEITETE Originalbild
                     frame_idx += 1
-                    if frame_idx % 10 == 0:
-                        vid_progress.progress(frame_idx / total_frames)
-                        vid_status.text(f"Analyzing & Rendering Frame {frame_idx} / {total_frames}...")
-                
-                # Letztes Video noch schließen und einpacken
-                out.release()
-                with open(temp_out.name, "rb") as f:
-                    zip_file_vid.writestr(f"scene_{clip_idx:03d}.mp4", f.read())
                     
+                # Letzte Szene speichern
+                out.release()
+                st.session_state.vid_scenes.append({
+                    'id': clip_idx,
+                    'raw_path': temp_out.name,
+                    'thumb': current_thumbnail_prev
+                })
                 cap.release()
-                vid_status.success(f"Render Complete! {clip_idx} Sub-Clips extrahiert.")
                 
-            # ZIP Download Button
-            st.download_button(
-                label="💾 Download Spliced Scenes (.zip)",
-                data=zip_buffer_vid.getvalue(),
-                file_name="normalized_scenes.zip",
-                mime="application/zip"
-            )
+                # Gehe zu Schritt 2 und lade das UI neu
+                st.session_state.vid_step = 2
+                st.rerun()
+
+        # ---------------------------------------------------------
+        # SCHRITT 2: INDIVIDUAL GRADING & RENDER
+        # ---------------------------------------------------------
+        elif st.session_state.vid_step == 2:
+            st.success(f"✅ Analyse abgeschlossen! {len(st.session_state.vid_scenes)} Szenen extrahiert.")
+            st.markdown("### 🎛️ Step 2: Individual Scene Grading")
+            
+            # Globale Masken-Methode
+            mask_method_vid = st.radio("Globale Masking Method für alle Clips", ["HSV (Saturation)", "Luma (Grayscale)"])
+            
+            # Dictionary zum Speichern der individuellen Slider-Werte
+            scene_thresholds = {}
+            
+            # Baue ein schickes Grid für die Szenen (2 pro Reihe)
+            cols = st.columns(2)
+            for i, scene in enumerate(st.session_state.vid_scenes):
+                with cols[i % 2]:
+                    st.image(scene['thumb'], caption=f"Scene {scene['id']}", use_container_width=True)
+                    # Jeder Clip bekommt seinen EIGENEN Slider!
+                    if mask_method_vid == "HSV (Saturation)":
+                        val = st.slider(f"HSV Threshold (Scene {scene['id']})", 0, 100, 15, key=f"sl_{scene['id']}")
+                    else:
+                        val = st.slider(f"Luma Threshold (Scene {scene['id']})", 0, 255, 210, key=f"sl_{scene['id']}")
+                    scene_thresholds[scene['id']] = val
+                    st.divider()
+
+            # --- FINALE RENDER SCHLEIFE ---
+            if st.button("🚀 Render All Scenes & Create ZIP", use_container_width=True):
+                zip_buffer_vid = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
+                    
+                    render_bar = st.progress(0)
+                    render_status = st.empty()
+                    
+                    for idx, scene in enumerate(st.session_state.vid_scenes):
+                        render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)}...")
+                        
+                        # Roh-Video der Szene laden
+                        cap_scene = cv2.VideoCapture(scene['raw_path'])
+                        fps = cap_scene.get(cv2.CAP_PROP_FPS)
+                        width = int(cap_scene.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        height = int(cap_scene.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        
+                        # Temporäres Output-Video für diese Szene
+                        temp_graded = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                        out_scene = cv2.VideoWriter(temp_graded.name, fourcc, fps, (width, height))
+                        
+                        # Individuellen Threshold abrufen
+                        thresh = scene_thresholds[scene['id']]
+                        
+                        while cap_scene.isOpened():
+                            ret, frame = cap_scene.read()
+                            if not ret: break
+                            
+                            # Grading mit dem spezifischen Wert!
+                            try:
+                                if mask_method_vid == "HSV (Saturation)":
+                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=thresh, target_sat_thresh=thresh)
+                                else:
+                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=thresh, target_thresh=thresh)
+                            except:
+                                norm = frame
+                                
+                            out_scene.write(norm)
+                            
+                        cap_scene.release()
+                        out_scene.release()
+                        
+                        # Das fertig gegradete Video ins ZIP packen
+                        with open(temp_graded.name, "rb") as f:
+                            zip_file_vid.writestr(f"graded_scene_{scene['id']:03d}.mp4", f.read())
+                            
+                        render_bar.progress((idx + 1) / len(st.session_state.vid_scenes))
+                        
+                render_status.success("🎉 Alle Clips gerendert und verpackt!")
+                
+                # Finaler Download Button
+                st.download_button(
+                    label="💾 Download Graded Scenes (.zip)",
+                    data=zip_buffer_vid.getvalue(),
+                    file_name="individually_graded_scenes.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+                
+            if st.button("🔄 Neustart (Anderes Video analysieren)"):
+                reset_vid_state()
+                st.rerun()
