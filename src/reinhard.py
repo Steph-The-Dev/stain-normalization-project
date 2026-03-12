@@ -13,7 +13,7 @@ def get_tissue_mask_manual(image, threshold_value=210):
     _, mask = cv2.threshold(gray, threshold_value, 255, cv2.THRESH_BINARY_INV)
     return mask
 
-def get_tissue_mask_hsv(image, saturation_threshold=15):
+def get_tissue_mask_hsv(image, saturation_threshold=35):
     """Erstellt eine Gewebe-Maske basierend auf der Sättigung (HSV Chroma-Key)."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     s_channel = hsv[:, :, 1]
