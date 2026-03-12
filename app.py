@@ -61,19 +61,21 @@ with tab_single:
 
 
 # ==========================================
-# TAB 2: BATCH PROCESSING
+# TAB 2: BATCH PROCESSING (Cloud Ready via ZIP)
 # ==========================================
+import zipfile
+import io
+
 with tab_batch:
-    st.header("Batch Directory Rendering")
-    st.info("Normalisiert alle Bilder in einem lokalen Ordner basierend auf einem Referenz-Look.")
+    st.header("Cloud Batch Rendering")
+    st.info("Lade mehrere Bilder gleichzeitig hoch. Der Server verarbeitet sie und schnürt dir ein ZIP-Paket zum Download.")
     
-    batch_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_batch")
-    
-    col_paths1, col_paths2 = st.columns(2)
-    with col_paths1:
-        input_dir = st.text_input("Input Ordner-Pfad", value="data/raw/batch_input")
-    with col_paths2:
-        output_dir = st.text_input("Output Ordner-Pfad", value="data/processed/batch_output")
+    col_batch_up1, col_batch_up2 = st.columns(2)
+    with col_batch_up1:
+        # NEU: accept_multiple_files=True erlaubt das Markieren von hunderten Bildern!
+        source_files = st.file_uploader("Upload Source Images (Mehrere markieren)", type=["jpg", "png", "tif"], accept_multiple_files=True, key="src_batch")
+    with col_batch_up2:
+        batch_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_batch")
         
     col_bset1, col_bset2 = st.columns(2)
     with col_bset1:
@@ -84,43 +86,46 @@ with tab_batch:
         else:
             batch_threshold = st.slider("Luma Threshold", 0, 255, 210, key="slider_batch_luma")
 
-    if st.button("🚀 Start Batch Render") and batch_target_file:
-        if not os.path.exists(input_dir):
-            st.error(f"Ordner '{input_dir}' nicht gefunden!")
-        else:
-            target_img = load_uploaded_image(batch_target_file)
-            os.makedirs(output_dir, exist_ok=True)
+    if st.button("🚀 Start Batch Render") and batch_target_file and source_files:
+        target_img = load_uploaded_image(batch_target_file)
+        
+        # Ein virtuelles ZIP-Archiv im Arbeitsspeicher des Servers erstellen
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
             
-            valid_ext = ('.jpg', '.jpeg', '.png', '.tif', '.tiff')
-            files = [f for f in os.listdir(input_dir) if f.lower().endswith(valid_ext)]
+            for i, file in enumerate(source_files):
+                status_text.text(f"Verarbeite: {file.name} ({i+1}/{len(source_files)})")
+                
+                # Bild aus dem RAM laden
+                src_img = load_uploaded_image(file)
+                
+                # Grading anwenden
+                if mask_method_batch == "HSV (Saturation)":
+                    res = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
+                else:
+                    res = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
+                
+                # Fertiges Bild wieder in Bytes umwandeln (als hochwertiges PNG)
+                is_success, buffer = cv2.imencode(".png", res)
+                if is_success:
+                    # Bild in das ZIP-Archiv schreiben
+                    original_name, _ = os.path.splitext(file.name)
+                    zip_file.writestr(f"{original_name}_normalized.png", buffer.tobytes())
+                
+                progress_bar.progress((i + 1) / len(source_files))
             
-            if not files:
-                st.warning("Keine passenden Bilder im Input-Ordner gefunden.")
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for i, file in enumerate(files):
-                    status_text.text(f"Verarbeite: {file} ({i+1}/{len(files)})")
-                    src_path = os.path.join(input_dir, file)
-                    src_img = cv2.imread(src_path, cv2.IMREAD_UNCHANGED)
-                    
-                    if src_img.dtype == 'uint16':
-                        src_img = (src_img / 256).astype('uint8')
-                        
-                    # Methoden-Weiche für Batch
-                    if mask_method_batch == "HSV (Saturation)":
-                        res = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
-                    else:
-                        res = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
-                    
-                    name, _ = os.path.splitext(file)
-                    cv2.imwrite(os.path.join(output_dir, f"{name}_norm.tif"), res)
-                    
-                    progress_bar.progress((i + 1) / len(files))
-                
-                status_text.success(f"🎉 Batch Render abgeschlossen! {len(files)} Bilder gespeichert in {output_dir}.")
-
+            status_text.success("🎉 Batch Render abgeschlossen! Lade dein ZIP-Archiv herunter.")
+            
+        # Wenn die Schleife fertig ist, den Download-Button anzeigen
+        st.download_button(
+            label="💾 Download Normalized Images (.zip)",
+            data=zip_buffer.getvalue(),
+            file_name="normalized_batch.zip",
+            mime="application/zip"
+        )
 
 # ==========================================
 # TAB 3: VIDEO ANALYSIS & SCENE DETECTION
