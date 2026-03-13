@@ -45,14 +45,14 @@ For processing continuous WSI scanner feeds (e.g., Tissue Microarrays):
 
 ### Option A: Try it live in the browser (Recommended)
 The app is fully deployed on Streamlit Community Cloud. No installation required.
-👉 **[(https://stain-normalization-pro.streamlit.app/)]**
+👉 **[Stain Normalization App auf Streamlit](https://stain-normalization-pro.streamlit.app/)**
 
 ### Option B: Local Installation
 If you want to run the suite locally:
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/stain-normalization-project.git](https://github.com/YOUR_USERNAME/stain-normalization-project.git)
+   git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
    cd stain-normalization-project
    ```
 
