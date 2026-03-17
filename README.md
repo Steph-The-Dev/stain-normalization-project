@@ -56,11 +56,11 @@ Fully deployed on Streamlit Community Cloud. No installation required.
 
 ### Local Installation
 ```bash
-git clone [https://github.com/Steph-The-Dev/stain-normalization-project.git](https://github.com/Steph-The-Dev/stain-normalization-project.git)
+git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
 cd stain-normalization-project
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
 ---
-*Developed as part of the MSc Applied Information and Data Science at HSLU.*
+*Developed as part of the preparation for the MSc Applied Information and Data Science at HSLU.*
