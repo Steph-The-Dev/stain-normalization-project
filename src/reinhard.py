@@ -13,7 +13,7 @@ def get_tissue_mask_manual(image, threshold_value=210):
     _, mask = cv2.threshold(gray, threshold_value, 255, cv2.THRESH_BINARY_INV)
     return mask
 
-def get_tissue_mask_hsv(image, saturation_threshold=35):
+def get_tissue_mask_hsv(image, saturation_threshold=15):
     """Erstellt eine Gewebe-Maske basierend auf der Sättigung (HSV Chroma-Key)."""
     hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
     s_channel = hsv[:, :, 1]
@@ -25,8 +25,8 @@ def get_mean_std_masked(image, mask=None):
     mean, std = cv2.meanStdDev(image, mask=mask)
     return mean.flatten(), std.flatten()
 
-def normalize_stain_reinhard_custom(src_img, target_img, src_thresh=210, target_thresh=210):
-    """Reinhard-Normalisierung mit Luma-Masken."""
+def normalize_stain_reinhard_custom(src_img, target_img, src_thresh=210, target_thresh=210, luma_blend=0.0):
+    """Reinhard-Normalisierung mit Luma-Masken und Luma-Preservation (Kontrast)."""
     src_lab = cv2.cvtColor(src_img, cv2.COLOR_BGR2LAB).astype(np.float32)
     target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype(np.float32)
 
@@ -39,16 +39,25 @@ def normalize_stain_reinhard_custom(src_img, target_img, src_thresh=210, target_
     src_std[src_std == 0] = 1e-5
 
     l, a, b = cv2.split(src_lab)
+    
+    # 1. Klassische Reinhard-Skalierung für den L-Kanal
     l_norm = (l - src_mean[0]) * (target_std[0] / src_std[0]) + target_mean[0]
+    
+    # --- NEU: Luminance Blend (Opacity für den Kontrast) ---
+    l_final = (l_norm * (1.0 - luma_blend)) + (l * luma_blend)
+
+    # 2. A- und B-Kanäle (Farbe) zu 100% matchen
     a_norm = (a - src_mean[1]) * (target_std[1] / src_std[1]) + target_mean[1]
     b_norm = (b - src_mean[2]) * (target_std[2] / src_std[2]) + target_mean[2]
 
-    result_lab = cv2.merge((l_norm, a_norm, b_norm))
+    # Die neuen Kanäle zusammenfügen (l_final statt l_norm nutzen!)
+    result_lab = cv2.merge((l_final, a_norm, b_norm))
     result_lab = np.clip(result_lab, 0, 255).astype(np.uint8)
     return cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
 
-def normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=15, target_sat_thresh=15):
-    """Reinhard-Normalisierung mit HSV-Sättigungs-Masken (Empfohlen)."""
+
+def normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=15, target_sat_thresh=15, luma_blend=0.0):
+    """Reinhard-Normalisierung mit HSV-Sättigungs-Masken und Luma-Preservation (Empfohlen)."""
     src_lab = cv2.cvtColor(src_img, cv2.COLOR_BGR2LAB).astype(np.float32)
     target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype(np.float32)
 
@@ -61,10 +70,18 @@ def normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=15, t
     src_std[src_std == 0] = 1e-5
 
     l, a, b = cv2.split(src_lab)
+    
+    # 1. Klassische Reinhard-Skalierung für den L-Kanal
     l_norm = (l - src_mean[0]) * (target_std[0] / src_std[0]) + target_mean[0]
+    
+    # --- NEU: Luminance Blend (Opacity für den Kontrast) ---
+    l_final = (l_norm * (1.0 - luma_blend)) + (l * luma_blend)
+
+    # 2. A- und B-Kanäle (Farbe) zu 100% matchen
     a_norm = (a - src_mean[1]) * (target_std[1] / src_std[1]) + target_mean[1]
     b_norm = (b - src_mean[2]) * (target_std[2] / src_std[2]) + target_mean[2]
 
-    result_lab = cv2.merge((l_norm, a_norm, b_norm))
+    # Die neuen Kanäle zusammenfügen (l_final statt l_norm nutzen!)
+    result_lab = cv2.merge((l_final, a_norm, b_norm))
     result_lab = np.clip(result_lab, 0, 255).astype(np.uint8)
     return cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
