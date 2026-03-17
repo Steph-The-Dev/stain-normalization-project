@@ -181,7 +181,7 @@ with tab_single:
             col_render, col_download = st.columns(2)
             
             with col_render:
-                if st.button("🚀 Render High-Res Image", use_container_width=True):
+                if st.button("🚀 Render High-Res Image", width='stretch'):
                     with st.spinner("Berechne volle Auflösung..."):
                         # HIER nutzen wir die raw_src und raw_trg (die großen Originale!)
                         if mask_method_single == "HSV (Saturation)":
@@ -203,7 +203,7 @@ with tab_single:
                         data=st.session_state['single_download_ready'],
                         file_name="normalized_master.png",
                         mime="image/png",
-                        use_container_width=True
+                        width='stretch'
                     )
 
         # Fragment-Funktion aufrufen
@@ -268,7 +268,7 @@ with tab_batch:
                 # FIX: Uniforme Überschrift verhindert das Verrutschen nach unten!
                 st.markdown("**1. Source**")
                 st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                st.caption(f"File: {source_files[0].name}") # Dateiname sicher unter dem Bild
+                # st.caption(f"File: {source_files[0].name}") # Dateiname sicher unter dem Bild
                 if show_scopes: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
                 
             with c2:
@@ -284,7 +284,7 @@ with tab_batch:
             st.divider()
             
             # --- DER RENDER PROZESS ---
-            if st.button("🚀 Start Full Batch Render (Apply to all images)", use_container_width=True):
+            if st.button("🚀 Start Full Batch Render (Apply to all images)", width='stretch'):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     progress_bar = st.progress(0)
@@ -315,7 +315,7 @@ with tab_batch:
                     data=zip_buffer.getvalue(),
                     file_name="normalized_batch.zip",
                     mime="application/zip",
-                    use_container_width=True
+                    width='stretch'
                 )
                 
         batch_look_dev_panel()
@@ -446,11 +446,15 @@ with tab_video:
                 # ---------------------------------------------------------
                 with col_ref:
                     st.markdown("#### 🎯 Master Target")
-                    # Wir nutzen das rohe Target-Bild für maximale Qualität, ohne HTML-Rahmen!
-                    st.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), use_container_width=True)
+                    st.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), width='stretch')
+                    
+                    # --- NEU: Das Scope für das Target-Bild ---
+                    if show_scopes:
+                        st.image(generate_fast_rgb_parade(trg_proxy), width='stretch')
+                        
                     st.info("💡 Scrolle durch die Timeline auf der linken Seite. Dieses Target-Bild bleibt immer hier stehen.")
 
-                # ---------------------------------------------------------
+                # --------------------------------------------------------
                 # LINKE SPALTE: Die scrollbare Timeline
                 # ---------------------------------------------------------
                 with col_main:
@@ -503,7 +507,7 @@ with tab_video:
                 # FINALE RENDER SCHLEIFE (Unterhalb der Spalten)
                 # ---------------------------------------------------------
                 st.markdown("### 💾 Export Master Video")
-                if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
+                if st.button("🚀 Render Master ZIP (Apply all Settings)", width='stretch'):
                     zip_buffer_vid = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
                         
@@ -555,7 +559,7 @@ with tab_video:
                         data=zip_buffer_vid.getvalue(),
                         file_name="master_graded_scenes.zip",
                         mime="application/zip",
-                        use_container_width=True
+                        width='stretch'
                     )
                     
                 if st.button("🔄 Neustart (Anderes Video analysieren)"):
