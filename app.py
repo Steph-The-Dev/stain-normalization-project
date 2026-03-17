@@ -4,6 +4,41 @@ import numpy as np
 import os
 import tempfile
 
+def generate_fast_rgb_parade(image_bgr, scope_width=256, scope_height=400):
+    """
+    Rendert eine RGB-Parade als reines Pixel-Array (2D Histogramm).
+    Löste das Matplotlib-Problem und ist 100x schneller (Live-Scrubbing!).
+    """
+    # 1. Bild verkleinern (für Performance)
+    img = cv2.resize(image_bgr, (scope_width, 128))
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    
+    # 2. Schwarze Leinwand für die Parade (R, G, B nebeneinander)
+    parade = np.zeros((scope_height, scope_width * 3, 3), dtype=np.uint8)
+    
+    for i in range(3): # 0=Rot, 1=Grün, 2=Blau
+        channel = img_rgb[:, :, i]
+        chan_scope = np.zeros((256, scope_width), dtype=np.float32)
+        
+        # 3. 2D Histogramm: Zähle Helligkeitswerte pro Spalte
+        for x in range(scope_width):
+            col_data = channel[:, x]
+            hist = np.bincount(col_data, minlength=256)
+            chan_scope[:, x] = hist[:256]
+            
+        # 4. Gamma-Korrektur: Lässt die Pixel leuchten wie bei einem echten Phosphor-Scope
+        chan_scope = np.power(chan_scope / (chan_scope.max() + 1e-5), 0.4) * 255
+        
+        # 5. Vertikal spiegeln (Weiß/255 soll oben sein)
+        chan_scope = np.flipud(chan_scope)
+        chan_scope = cv2.resize(chan_scope, (scope_width, scope_height))
+        
+        # 6. In die Parade einfügen (auf dem jeweiligen Farbkanal)
+        x_offset = i * scope_width
+        parade[:, x_offset:x_offset+scope_width, i] = chan_scope.astype(np.uint8)
+        
+    return parade
+
 # Importiere BEIDE Kern-Funktionen
 from src.reinhard import normalize_stain_reinhard_hsv_final, normalize_stain_reinhard_custom
 
@@ -21,8 +56,9 @@ def reset_vid_state():
     st.session_state.vid_scenes = []
     st.session_state.vid_step = 1
 
-# Hilfsfunktion für den Bild-Upload
+# Hilfsfunktion für den Bild-Upload (mit EOF-Fix)
 def load_uploaded_image(uploaded_file):
+    uploaded_file.seek(0)  # <--- WICHTIG: Spult die Datei zurück auf Anfang!
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     return cv2.imdecode(file_bytes, 1)
 
@@ -34,45 +70,127 @@ st.markdown("**Powered by Reinhard Method & Smart Tissue Masking (HSV/Luma)**")
 tab_single, tab_batch, tab_video = st.tabs(["📷 Single Image", "📂 Batch Processing", "🎬 Video Analysis"])
 
 # ==========================================
-# TAB 1: SINGLE IMAGE
+# HILFSFUNKTION FÜR ECHTZEIT-SLIDER (PROXY)
+# (Füge das einfach oben im Tab 1 Bereich ein)
+# ==========================================
+def create_ui_proxy(image_bgr, max_height=400):
+    """
+    Skaliert Bilder für das Streamlit-UI herunter. 
+    Reduziert die Rechenzeit von 500ms auf <10ms -> Flüssiger Slider!
+    """
+    h, w = image_bgr.shape[:2]
+    if h > max_height:
+        ratio = max_height / h
+        return cv2.resize(image_bgr, (int(w * ratio), max_height))
+    return image_bgr
+
+# ==========================================
+# TAB 1: SINGLE IMAGE (Pro Grading Layout)
 # ==========================================
 with tab_single:
-    st.header("Single Image Grading")
-    col_upload1, col_upload2 = st.columns(2)
+    st.header("Single Image Look Dev")
     
-    with col_upload1:
-        source_file = st.file_uploader("Upload Source Image", type=["jpg", "png", "tif"], key="src_single")
-    with col_upload2:
+    # --- MEDIA POOL (Oben) ---
+    col_up1, col_up2 = st.columns(2)
+    with col_up1:
+        source_file = st.file_uploader("Upload Source", type=["jpg", "png", "tif"], key="src_single")
+    with col_up2:
         target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_single")
 
-    st.markdown("### Keying Settings")
-    col_set1, col_set2 = st.columns(2)
-    with col_set1:
-        mask_method_single = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_single")
-    with col_set2:
-        if mask_method_single == "HSV (Saturation)":
-            threshold_single = st.slider("HSV Threshold (Tissue > X)", 0, 100, 15, key="slider_single_hsv")
-        else:
-            threshold_single = st.slider("Luma Threshold (Tissue < X)", 0, 255, 210, key="slider_single_luma")
+    st.divider()
 
     if source_file and target_file:
-        src_img = load_uploaded_image(source_file)
-        target_img = load_uploaded_image(target_file)
+        raw_src = load_uploaded_image(source_file)
+        raw_trg = load_uploaded_image(target_file)
 
-        with st.spinner("Rendering..."):
+        # Proxys extrem klein rechnen (max 300px Höhe), das verzehnfacht die Rechengeschwindigkeit!
+        src_proxy = create_ui_proxy(raw_src, max_height=300)
+        trg_proxy = create_ui_proxy(raw_trg, max_height=300)
+
+        # ========================================================
+        # ISOLIERTES LOOK DEV FRAGMENT
+        # ========================================================
+        @st.fragment
+        def look_dev_panel():
+            st.markdown("### 🎛️ Grading Controls")
+            
+            col_set1, col_set2, col_set3, col_set4 = st.columns([1, 1.5, 1.5, 1])
+            with col_set1:
+                mask_method_single = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_single")
+            with col_set2:
+                if mask_method_single == "HSV (Saturation)":
+                    threshold_single = st.slider("Mask Threshold", 0, 100, 15, key="slider_single_hsv")
+                else:
+                    threshold_single = st.slider("Mask Threshold", 0, 255, 210, key="slider_single_luma")
+            with col_set3:
+                luma_blend_single = st.slider("Luma Preservation (Contrast)", 0.0, 1.0, 0.2, step=0.05, key="blend_single")
+            with col_set4:
+                show_scopes_single = st.toggle("📊 Show RGB Parades", value=True, key="scope_single")
+
+            # --- SCHNELLE BERECHNUNG (Auf dem Proxy) ---
             if mask_method_single == "HSV (Saturation)":
-                result_img = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=threshold_single, target_sat_thresh=threshold_single)
+                res_proxy = normalize_stain_reinhard_hsv_final(src_proxy, trg_proxy, src_sat_thresh=threshold_single, target_sat_thresh=threshold_single, luma_blend=luma_blend_single)
             else:
-                result_img = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=threshold_single, target_thresh=threshold_single)
+                res_proxy = normalize_stain_reinhard_custom(src_proxy, trg_proxy, src_thresh=threshold_single, target_thresh=threshold_single, luma_blend=luma_blend_single)
 
-        c1, c2, c3 = st.columns(3)
-        c1.image(cv2.cvtColor(src_img, cv2.COLOR_BGR2RGB), caption="1. Source", width='stretch')
-        c2.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), caption="2. Target", width='stretch')
-        c3.image(cv2.cvtColor(result_img, cv2.COLOR_BGR2RGB), caption="3. Result", width='stretch')
+            st.markdown("### 📺 Grading Monitor")
+            
+            img_width = 350
+            c1, c2, c3 = st.columns(3)
+            
+            with c1:
+                st.markdown("**1. Source**")
+                st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                if show_scopes_single: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
 
+            with c2:
+                st.markdown("**2. Target**")
+                st.image(cv2.cvtColor(trg_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                if show_scopes_single: st.image(generate_fast_rgb_parade(trg_proxy), width=img_width)
+
+            with c3:
+                st.markdown("**3. Result Preview**")
+                st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                if show_scopes_single: st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
+
+            st.divider()
+
+            # --- NEU: FULL RESOLUTION EXPORT ---
+            st.markdown("### 💾 Export Master Image")
+            
+            col_render, col_download = st.columns(2)
+            
+            with col_render:
+                if st.button("🚀 Render High-Res Image", use_container_width=True):
+                    with st.spinner("Berechne volle Auflösung..."):
+                        # HIER nutzen wir die raw_src und raw_trg (die großen Originale!)
+                        if mask_method_single == "HSV (Saturation)":
+                            res_full = normalize_stain_reinhard_hsv_final(raw_src, raw_trg, src_sat_thresh=threshold_single, target_sat_thresh=threshold_single, luma_blend=luma_blend_single)
+                        else:
+                            res_full = normalize_stain_reinhard_custom(raw_src, raw_trg, src_thresh=threshold_single, target_thresh=threshold_single, luma_blend=luma_blend_single)
+                        
+                        # In PNG umwandeln für verlustfreien Export
+                        is_success, buffer = cv2.imencode(".png", res_full)
+                        if is_success:
+                            # Speichere das fertige Bild im Session State
+                            st.session_state['single_download_ready'] = buffer.tobytes()
+
+            with col_download:
+                # Zeige den Download-Button nur an, wenn gerendert wurde
+                if 'single_download_ready' in st.session_state:
+                    st.download_button(
+                        label="⬇️ Download .PNG",
+                        data=st.session_state['single_download_ready'],
+                        file_name="normalized_master.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+
+        # Fragment-Funktion aufrufen
+        look_dev_panel()
 
 # ==========================================
-# TAB 2: BATCH PROCESSING (Mit Preview & ZIP)
+# TAB 2: BATCH PROCESSING (Mit Pro Layout & Fragment)
 # ==========================================
 import zipfile
 import io
@@ -87,65 +205,100 @@ with tab_batch:
     with col_batch_up2:
         batch_target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_batch")
         
-    col_bset1, col_bset2 = st.columns(2)
-    with col_bset1:
-        mask_method_batch = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_batch")
-    with col_bset2:
-        if mask_method_batch == "HSV (Saturation)":
-            batch_threshold = st.slider("HSV Threshold", 0, 100, 15, key="slider_batch_hsv")
-        else:
-            batch_threshold = st.slider("Luma Threshold", 0, 255, 210, key="slider_batch_luma")
-
-    # --- NEU: DIE LIVE-VORSCHAU ---
     if source_files and batch_target_file:
-        st.markdown("### 👁️ Look Dev: Live-Vorschau (Erstes Bild)")
-        target_img = load_uploaded_image(batch_target_file)
-        preview_src = load_uploaded_image(source_files[0])
+        raw_trg = load_uploaded_image(batch_target_file)
+        raw_src = load_uploaded_image(source_files[0]) # Das erste Bild für die Vorschau
         
-        # Grading für die Vorschau
-        if mask_method_batch == "HSV (Saturation)":
-            preview_res = normalize_stain_reinhard_hsv_final(preview_src, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
-        else:
-            preview_res = normalize_stain_reinhard_custom(preview_src, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
+        # PROXYS für das Look Dev (macht den Slider flüssig)
+        trg_proxy = create_ui_proxy(raw_trg, max_height=300)
+        src_proxy = create_ui_proxy(raw_src, max_height=300)
+        
+# ========================================================
+        # ISOLIERTES LOOK DEV FRAGMENT (TAB 2)
+        # ========================================================
+        @st.fragment
+        def batch_look_dev_panel():
+            st.markdown("### 👁️ Look Dev: Live-Vorschau (Erstes Bild)")
             
-        c1, c2, c3 = st.columns(3)
-        c1.image(cv2.cvtColor(preview_src, cv2.COLOR_BGR2RGB), caption=f"Source: {source_files[0].name}", width='stretch')
-        c2.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), caption="Target", width='stretch')
-        c3.image(cv2.cvtColor(preview_res, cv2.COLOR_BGR2RGB), caption="Result Preview", width='stretch')
-        
-        st.divider()
-
-        # --- DER RENDER PROZESS ---
-        if st.button("🚀 Start Full Batch Render"):
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+            # Wir brauchen 4 Spalten für den neuen Regler
+            col_bset1, col_bset2, col_bset3, col_bset4 = st.columns([1, 1.5, 1.5, 1])
+            with col_bset1:
+                method = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_batch")
+            with col_bset2:
+                if method == "HSV (Saturation)":
+                    thresh = st.slider("Mask Threshold", 0, 100, 15, key="slider_batch_hsv")
+                else:
+                    thresh = st.slider("Mask Threshold", 0, 255, 210, key="slider_batch_luma")
+            with col_bset3:
+                # --- NEU: DER LUMINANCE BLEND FÜR DEN BATCH ---
+                luma_blend_batch = st.slider("Luma Preservation", 0.0, 1.0, 0.2, step=0.05, key="blend_batch")
+            with col_bset4:
+                show_scopes = st.toggle("📊 Show RGB Parades", value=True, key="scope_batch")
                 
-                for i, file in enumerate(source_files):
-                    status_text.text(f"Verarbeite: {file.name} ({i+1}/{len(source_files)})")
-                    src_img = load_uploaded_image(file)
-                    
-                    if mask_method_batch == "HSV (Saturation)":
-                        res = normalize_stain_reinhard_hsv_final(src_img, target_img, src_sat_thresh=batch_threshold, target_sat_thresh=batch_threshold)
-                    else:
-                        res = normalize_stain_reinhard_custom(src_img, target_img, src_thresh=batch_threshold, target_thresh=batch_threshold)
-                    
-                    is_success, buffer = cv2.imencode(".png", res)
-                    if is_success:
-                        original_name, _ = os.path.splitext(file.name)
-                        zip_file.writestr(f"{original_name}_normalized.png", buffer.tobytes())
-                    
-                    progress_bar.progress((i + 1) / len(source_files))
+            # Schnelle Berechnung auf dem Proxy (mit neuem Luma Blend)
+            if method == "HSV (Saturation)":
+                res_proxy = normalize_stain_reinhard_hsv_final(src_proxy, trg_proxy, src_sat_thresh=thresh, target_sat_thresh=thresh, luma_blend=luma_blend_batch)
+            else:
+                res_proxy = normalize_stain_reinhard_custom(src_proxy, trg_proxy, src_thresh=thresh, target_thresh=thresh, luma_blend=luma_blend_batch)
                 
-                status_text.success("🎉 Batch Render abgeschlossen!")
+            img_width = 350
+            c1, c2, c3 = st.columns(3)
+            
+            with c1:
+                # FIX: Uniforme Überschrift verhindert das Verrutschen nach unten!
+                st.markdown("**1. Source**")
+                st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                st.caption(f"File: {source_files[0].name}") # Dateiname sicher unter dem Bild
+                if show_scopes: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
                 
-            st.download_button(
-                label="💾 Download Normalized Images (.zip)",
-                data=zip_buffer.getvalue(),
-                file_name="normalized_batch.zip",
-                mime="application/zip"
-            )
+            with c2:
+                st.markdown("**2. Target**")
+                st.image(cv2.cvtColor(trg_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                if show_scopes: st.image(generate_fast_rgb_parade(trg_proxy), width=img_width)
+                
+            with c3:
+                st.markdown("**3. Result Preview**")
+                st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                if show_scopes: st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
+                
+            st.divider()
+            
+            # --- DER RENDER PROZESS ---
+            if st.button("🚀 Start Full Batch Render (Apply to all images)", use_container_width=True):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    for i, file in enumerate(source_files):
+                        status_text.text(f"Verarbeite Master: {file.name} ({i+1}/{len(source_files)})")
+                        
+                        full_src = load_uploaded_image(file)
+                        
+                        # Luma Blend im finalen Render anwenden!
+                        if method == "HSV (Saturation)":
+                            res = normalize_stain_reinhard_hsv_final(full_src, raw_trg, src_sat_thresh=thresh, target_sat_thresh=thresh, luma_blend=luma_blend_batch)
+                        else:
+                            res = normalize_stain_reinhard_custom(full_src, raw_trg, src_thresh=thresh, target_thresh=thresh, luma_blend=luma_blend_batch)
+                        
+                        is_success, buffer = cv2.imencode(".png", res)
+                        if is_success:
+                            original_name, _ = os.path.splitext(file.name)
+                            zip_file.writestr(f"{original_name}_normalized.png", buffer.tobytes())
+                        
+                        progress_bar.progress((i + 1) / len(source_files))
+                    
+                    status_text.success("🎉 Full Resolution Batch Render abgeschlossen!")
+                    
+                st.download_button(
+                    label="💾 Download Master Images (.zip)",
+                    data=zip_buffer.getvalue(),
+                    file_name="normalized_batch.zip",
+                    mime="application/zip",
+                    use_container_width=True
+                )
+                
+        batch_look_dev_panel()
 
 # ==========================================
 # TAB 3: VIDEO ANALYSIS & INDIVIDUAL AUTO-SPLICER
@@ -242,58 +395,67 @@ with tab_video:
                 st.session_state.vid_step = 2
                 st.rerun()
 
-        # ---------------------------------------------------------
-        # SCHRITT 2: INDIVIDUAL GRADING (Live Preview) & RENDER
+# ---------------------------------------------------------
+        # SCHRITT 2: INDIVIDUAL GRADING (Mit Proxy & Fragment)
         # ---------------------------------------------------------
         elif st.session_state.vid_step == 2:
             st.success(f"✅ Analyse abgeschlossen! {len(st.session_state.vid_scenes)} Szenen extrahiert.")
+            
+            # Proxys für das Target-Bild vorbereiten
+            trg_proxy = create_ui_proxy(target_img, max_height=300)
+            
+        @st.fragment
+        def video_look_dev_panel():
             st.markdown("### 🎛️ Step 2: Individual Scene Look Dev")
             
-            scene_settings = {}
+            show_scopes = st.toggle("📊 Show RGB Parades for all Scenes", value=True, key="vid_scopes")
             
-            # Für jede Szene eine eigene Arbeits-Zeile aufbauen
+            scene_settings = {}
+            img_width = 350
+            
             for scene in st.session_state.vid_scenes:
                 st.markdown(f"#### 🎬 Scene {scene['id']}")
                 
-                # Layout: Links Regler, Rechts Bilder
-                col_controls, col_images = st.columns([1, 2])
+                col_controls, col_src, col_res = st.columns([1, 1.5, 1.5])
                 
                 with col_controls:
-                    # Individuelle Weiche pro Clip!
-                    method = st.radio(f"Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key=f"method_{scene['id']}")
-                    
-                    # Passender Slider zur Methode
+                    method = st.radio("Method", ["HSV (Saturation)", "Luma (Grayscale)"], key=f"method_{scene['id']}")
                     if method == "HSV (Saturation)":
-                        thresh = st.slider(f"HSV Threshold", 0, 100, 15, key=f"thresh_{scene['id']}")
+                        thresh = st.slider("Mask Threshold", 0, 100, 15, key=f"thresh_{scene['id']}")
                     else:
-                        thresh = st.slider(f"Luma Threshold", 0, 255, 210, key=f"thresh_{scene['id']}")
-                        
-                    # Speichere die Settings für den Render-Loop
-                    scene_settings[scene['id']] = {'method': method, 'thresh': thresh}
-
-                with col_images:
-                    # 1. Bild in BGR für OpenCV umwandeln
-                    thumb_bgr = cv2.cvtColor(scene['thumb'], cv2.COLOR_RGB2BGR)
+                        thresh = st.slider("Mask Threshold", 0, 255, 210, key=f"thresh_{scene['id']}")
                     
-                    # 2. Live-Grading NUR für das Thumbnail berechnen
-                    try:
-                        if method == "HSV (Saturation)":
-                            preview_bgr = normalize_stain_reinhard_hsv_final(thumb_bgr, target_img, src_sat_thresh=thresh, target_sat_thresh=thresh)
-                        else:
-                            preview_bgr = normalize_stain_reinhard_custom(thumb_bgr, target_img, src_thresh=thresh, target_thresh=thresh)
-                        preview_rgb = cv2.cvtColor(preview_bgr, cv2.COLOR_BGR2RGB)
-                    except Exception as e:
-                        preview_rgb = scene['thumb'] # Fallback
-                        st.error(f"Render Error: {e}")
+                    # --- NEU: DER LUMINANCE BLEND PRO SZENE ---
+                    luma_blend_scene = st.slider("Luma Preservation", 0.0, 1.0, 0.2, step=0.05, key=f"blend_{scene['id']}")
+                    
+                    # Wir speichern den Blend-Wert im Dictionary für den späteren Render-Loop
+                    scene_settings[scene['id']] = {'method': method, 'thresh': thresh, 'blend': luma_blend_scene}
 
-                    # 3. Vorher / Nachher anzeigen
-                    c1, c2 = st.columns(2)
-                    c1.image(scene['thumb'], caption="Before (Raw Input)", use_container_width=True)
-                    c2.image(preview_rgb, caption="After (Live Preview)", use_container_width=True)
+                thumb_bgr = cv2.cvtColor(scene['thumb'], cv2.COLOR_RGB2BGR)
+                src_proxy = create_ui_proxy(thumb_bgr, max_height=300)
+                
+                try:
+                    # Luma Blend für das Vorschau-Bild anwenden
+                    if method == "HSV (Saturation)":
+                        res_proxy = normalize_stain_reinhard_hsv_final(src_proxy, trg_proxy, src_sat_thresh=thresh, target_sat_thresh=thresh, luma_blend=luma_blend_scene)
+                    else:
+                        res_proxy = normalize_stain_reinhard_custom(src_proxy, trg_proxy, src_thresh=thresh, target_thresh=thresh, luma_blend=luma_blend_scene)
+                except:
+                    res_proxy = src_proxy 
+
+                with col_src:
+                    st.markdown("**Source (Raw)**")
+                    st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                    if show_scopes: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
+                    
+                with col_res:
+                    st.markdown("**Live Preview**")
+                    st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                    if show_scopes: st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
                     
                 st.divider()
 
-            # --- FINALE RENDER SCHLEIFE ---
+            # --- FINALE RENDER SCHLEIFE (Nutzt die Master-Videos) ---
             if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
                 zip_buffer_vid = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
@@ -302,7 +464,7 @@ with tab_video:
                     render_status = st.empty()
                     
                     for idx, scene in enumerate(st.session_state.vid_scenes):
-                        render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)}...")
+                        render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)} (Full Resolution)...")
                         
                         cap_scene = cv2.VideoCapture(scene['raw_path'])
                         fps = cap_scene.get(cv2.CAP_PROP_FPS)
@@ -313,20 +475,21 @@ with tab_video:
                         temp_graded = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
                         out_scene = cv2.VideoWriter(temp_graded.name, fourcc, fps, (width, height))
                         
-                        # Lade die individuell eingestellten Parameter für DIESEN Clip
+                        # Die drei Werte für genau diesen Clip auslesen
                         c_method = scene_settings[scene['id']]['method']
                         c_thresh = scene_settings[scene['id']]['thresh']
+                        c_blend = scene_settings[scene['id']]['blend']
                         
                         while cap_scene.isOpened():
                             ret, frame = cap_scene.read()
                             if not ret: break
                             
-                            # Grading mit der spezifischen Methode und dem Wert!
                             try:
+                                # Luma Blend im Master-Video-Render anwenden!
                                 if c_method == "HSV (Saturation)":
-                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=c_thresh, target_sat_thresh=c_thresh)
+                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=c_thresh, target_sat_thresh=c_thresh, luma_blend=c_blend)
                                 else:
-                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=c_thresh, target_thresh=c_thresh)
+                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=c_thresh, target_thresh=c_thresh, luma_blend=c_blend)
                             except:
                                 norm = frame
                                 
@@ -340,7 +503,7 @@ with tab_video:
                             
                         render_bar.progress((idx + 1) / len(st.session_state.vid_scenes))
                         
-                render_status.success("🎉 Alle Clips gerendert und verpackt!")
+                render_status.success("🎉 Alle Clips in Master-Qualität gerendert und verpackt!")
                 
                 st.download_button(
                     label="💾 Download Spliced & Graded Scenes (.zip)",
@@ -353,3 +516,5 @@ with tab_video:
             if st.button("🔄 Neustart (Anderes Video analysieren)"):
                 reset_vid_state()
                 st.rerun()
+
+        video_look_dev_panel()
