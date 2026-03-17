@@ -4,6 +4,16 @@ import numpy as np
 import os
 import tempfile
 
+# ==========================================
+# HILFSFUNKTION FÜR TIMECODES
+# ==========================================
+def format_timecode(seconds):
+    """Wandelt Sekunden in ein lesbares Timecode-Format (MM:SS:MMM) um."""
+    mins = int(seconds // 60)
+    secs = int(seconds % 60)
+    ms = int((seconds % 1) * 1000)
+    return f"{mins:02d}:{secs:02d}:{ms:03d}"
+
 def generate_fast_rgb_parade(image_bgr, scope_width=256, scope_height=400):
     """
     Rendert eine RGB-Parade als reines Pixel-Array (2D Histogramm).
@@ -305,7 +315,7 @@ with tab_batch:
 # ==========================================
 with tab_video:
     st.header("Video Auto-Splicer & Individual Grading")
-    st.info("💡 **Workflow:** 1. Video zerschneiden -> 2. Jede Szene (HSV/Luma) via Live-Preview einstellen -> 3. Rendern.")
+    st.info("💡 **Workflow:** 1. Video analysieren & zerschneiden -> 2. Jede Szene individuell einstellen -> 3. Rendern.")
     
     col_vid1, col_vid2 = st.columns(2)
     with col_vid1:
@@ -329,6 +339,8 @@ with tab_video:
                 
                 cap = cv2.VideoCapture(tfile_in.name)
                 fps = cap.get(cv2.CAP_PROP_FPS)
+                if fps == 0 or np.isnan(fps): fps = 25.0 # Fallback-Sicherheit
+                
                 width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -340,6 +352,7 @@ with tab_video:
                 prev_gray = None
                 cooldown = 0
                 frame_idx = 0
+                scene_start_frame = 0  # <--- NEU: Merkt sich den Start-Frame
                 current_thumbnail = None
                 current_thumbnail_prev = None
                 
@@ -369,12 +382,16 @@ with tab_video:
                         current_thumbnail = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         if is_cut:
                             out.release()
+                            # NEU: Wir speichern Timecodes im Session State
                             st.session_state.vid_scenes.append({
                                 'id': clip_idx,
                                 'raw_path': temp_out.name,
-                                'thumb': current_thumbnail_prev
+                                'thumb': current_thumbnail_prev,
+                                'start_time': scene_start_frame / fps,
+                                'end_time': (frame_idx - 1) / fps
                             })
                             clip_idx += 1
+                            scene_start_frame = frame_idx
                             temp_out = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
                             out = cv2.VideoWriter(temp_out.name, fourcc, fps, (width, height))
                             
@@ -388,133 +405,139 @@ with tab_video:
                     st.session_state.vid_scenes.append({
                         'id': clip_idx,
                         'raw_path': temp_out.name,
-                        'thumb': current_thumbnail_prev
+                        'thumb': current_thumbnail_prev,
+                        'start_time': scene_start_frame / fps,
+                        'end_time': frame_idx / fps
                     })
                 cap.release()
                 
                 st.session_state.vid_step = 2
                 st.rerun()
 
-# ---------------------------------------------------------
-        # SCHRITT 2: INDIVIDUAL GRADING (Mit Proxy & Fragment)
+        # ---------------------------------------------------------
+        # SCHRITT 2: INDIVIDUAL GRADING (Mit Proxy, Target & Timecodes)
         # ---------------------------------------------------------
         elif st.session_state.vid_step == 2:
             st.success(f"✅ Analyse abgeschlossen! {len(st.session_state.vid_scenes)} Szenen extrahiert.")
             
-            # Proxys für das Target-Bild vorbereiten
             trg_proxy = create_ui_proxy(target_img, max_height=300)
             
-        @st.fragment
-        def video_look_dev_panel():
-            st.markdown("### 🎛️ Step 2: Individual Scene Look Dev")
-            
-            show_scopes = st.toggle("📊 Show RGB Parades for all Scenes", value=True, key="vid_scopes")
-            
-            scene_settings = {}
-            img_width = 350
-            
-            for scene in st.session_state.vid_scenes:
-                st.markdown(f"#### 🎬 Scene {scene['id']}")
+            @st.fragment
+            def video_look_dev_panel():
+                st.markdown("### 🎛️ Step 2: Individual Scene Look Dev")
                 
-                col_controls, col_src, col_res = st.columns([1, 1.5, 1.5])
-                
-                with col_controls:
-                    method = st.radio("Method", ["HSV (Saturation)", "Luma (Grayscale)"], key=f"method_{scene['id']}")
-                    if method == "HSV (Saturation)":
-                        thresh = st.slider("Mask Threshold", 0, 100, 15, key=f"thresh_{scene['id']}")
-                    else:
-                        thresh = st.slider("Mask Threshold", 0, 255, 210, key=f"thresh_{scene['id']}")
-                    
-                    # --- NEU: DER LUMINANCE BLEND PRO SZENE ---
-                    luma_blend_scene = st.slider("Luma Preservation", 0.0, 1.0, 0.2, step=0.05, key=f"blend_{scene['id']}")
-                    
-                    # Wir speichern den Blend-Wert im Dictionary für den späteren Render-Loop
-                    scene_settings[scene['id']] = {'method': method, 'thresh': thresh, 'blend': luma_blend_scene}
-
-                thumb_bgr = cv2.cvtColor(scene['thumb'], cv2.COLOR_RGB2BGR)
-                src_proxy = create_ui_proxy(thumb_bgr, max_height=300)
-                
-                try:
-                    # Luma Blend für das Vorschau-Bild anwenden
-                    if method == "HSV (Saturation)":
-                        res_proxy = normalize_stain_reinhard_hsv_final(src_proxy, trg_proxy, src_sat_thresh=thresh, target_sat_thresh=thresh, luma_blend=luma_blend_scene)
-                    else:
-                        res_proxy = normalize_stain_reinhard_custom(src_proxy, trg_proxy, src_thresh=thresh, target_thresh=thresh, luma_blend=luma_blend_scene)
-                except:
-                    res_proxy = src_proxy 
-
-                with col_src:
-                    st.markdown("**Source (Raw)**")
-                    st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                    if show_scopes: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
-                    
-                with col_res:
-                    st.markdown("**Live Preview**")
-                    st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                    if show_scopes: st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
-                    
+                # --- NEU: DAS TARGET-BILD ALS ZENTRALE REFERENZ ---
+                st.markdown("#### 🎯 Reference Target")
+                col_ref1, col_ref_img, col_ref3 = st.columns([1, 1.5, 1.5]) # Layout passend zu den Clips
+                with col_ref_img:
+                    st.image(cv2.cvtColor(trg_proxy, cv2.COLOR_BGR2RGB), caption="Master Target Image", width=350)
                 st.divider()
+                
+                show_scopes = st.toggle("📊 Show RGB Parades for all Scenes", value=True, key="vid_scopes")
+                
+                scene_settings = {}
+                img_width = 350
+                
+                for scene in st.session_state.vid_scenes:
+                    # --- NEU: TIMECODES IN DER ÜBERSCHRIFT ---
+                    tc_start = format_timecode(scene['start_time'])
+                    tc_end = format_timecode(scene['end_time'])
+                    st.markdown(f"#### 🎬 Scene {scene['id']} &nbsp;&nbsp;|&nbsp;&nbsp; ⏱️ `{tc_start}` - `{tc_end}`")
+                    
+                    col_controls, col_src, col_res = st.columns([1, 1.5, 1.5])
+                    
+                    with col_controls:
+                        method = st.radio("Method", ["HSV (Saturation)", "Luma (Grayscale)"], key=f"method_{scene['id']}")
+                        if method == "HSV (Saturation)":
+                            thresh = st.slider("Mask Threshold", 0, 100, 15, key=f"thresh_{scene['id']}")
+                        else:
+                            thresh = st.slider("Mask Threshold", 0, 255, 210, key=f"thresh_{scene['id']}")
+                        
+                        luma_blend_scene = st.slider("Luma Preservation", 0.0, 1.0, 0.2, step=0.05, key=f"blend_{scene['id']}")
+                        
+                        scene_settings[scene['id']] = {'method': method, 'thresh': thresh, 'blend': luma_blend_scene}
 
-            # --- FINALE RENDER SCHLEIFE (Nutzt die Master-Videos) ---
-            if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
-                zip_buffer_vid = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
+                    thumb_bgr = cv2.cvtColor(scene['thumb'], cv2.COLOR_RGB2BGR)
+                    src_proxy = create_ui_proxy(thumb_bgr, max_height=300)
                     
-                    render_bar = st.progress(0)
-                    render_status = st.empty()
-                    
-                    for idx, scene in enumerate(st.session_state.vid_scenes):
-                        render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)} (Full Resolution)...")
+                    try:
+                        if method == "HSV (Saturation)":
+                            res_proxy = normalize_stain_reinhard_hsv_final(src_proxy, trg_proxy, src_sat_thresh=thresh, target_sat_thresh=thresh, luma_blend=luma_blend_scene)
+                        else:
+                            res_proxy = normalize_stain_reinhard_custom(src_proxy, trg_proxy, src_thresh=thresh, target_thresh=thresh, luma_blend=luma_blend_scene)
+                    except:
+                        res_proxy = src_proxy 
+
+                    with col_src:
+                        st.markdown("**Source (Raw)**")
+                        st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                        if show_scopes: st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
                         
-                        cap_scene = cv2.VideoCapture(scene['raw_path'])
-                        fps = cap_scene.get(cv2.CAP_PROP_FPS)
-                        width = int(cap_scene.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        height = int(cap_scene.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                    with col_res:
+                        st.markdown("**Live Preview**")
+                        st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+                        if show_scopes: st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
                         
-                        temp_graded = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
-                        out_scene = cv2.VideoWriter(temp_graded.name, fourcc, fps, (width, height))
+                    st.divider()
+
+                # --- FINALE RENDER SCHLEIFE ---
+                if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
+                    zip_buffer_vid = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
                         
-                        # Die drei Werte für genau diesen Clip auslesen
-                        c_method = scene_settings[scene['id']]['method']
-                        c_thresh = scene_settings[scene['id']]['thresh']
-                        c_blend = scene_settings[scene['id']]['blend']
+                        render_bar = st.progress(0)
+                        render_status = st.empty()
                         
-                        while cap_scene.isOpened():
-                            ret, frame = cap_scene.read()
-                            if not ret: break
+                        for idx, scene in enumerate(st.session_state.vid_scenes):
+                            render_status.text(f"Rendere Scene {scene['id']} von {len(st.session_state.vid_scenes)} (Full Resolution)...")
                             
-                            try:
-                                # Luma Blend im Master-Video-Render anwenden!
-                                if c_method == "HSV (Saturation)":
-                                    norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=c_thresh, target_sat_thresh=c_thresh, luma_blend=c_blend)
-                                else:
-                                    norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=c_thresh, target_thresh=c_thresh, luma_blend=c_blend)
-                            except:
-                                norm = frame
+                            cap_scene = cv2.VideoCapture(scene['raw_path'])
+                            fps = cap_scene.get(cv2.CAP_PROP_FPS)
+                            width = int(cap_scene.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            height = int(cap_scene.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                            
+                            temp_graded = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4')
+                            out_scene = cv2.VideoWriter(temp_graded.name, fourcc, fps, (width, height))
+                            
+                            c_method = scene_settings[scene['id']]['method']
+                            c_thresh = scene_settings[scene['id']]['thresh']
+                            c_blend = scene_settings[scene['id']]['blend']
+                            
+                            while cap_scene.isOpened():
+                                ret, frame = cap_scene.read()
+                                if not ret: break
                                 
-                            out_scene.write(norm)
+                                try:
+                                    if c_method == "HSV (Saturation)":
+                                        norm = normalize_stain_reinhard_hsv_final(frame, target_img, src_sat_thresh=c_thresh, target_sat_thresh=c_thresh, luma_blend=c_blend)
+                                    else:
+                                        norm = normalize_stain_reinhard_custom(frame, target_img, src_thresh=c_thresh, target_thresh=c_thresh, luma_blend=c_blend)
+                                except:
+                                    norm = frame
+                                    
+                                out_scene.write(norm)
+                                
+                            cap_scene.release()
+                            out_scene.release()
                             
-                        cap_scene.release()
-                        out_scene.release()
-                        
-                        with open(temp_graded.name, "rb") as f:
-                            zip_file_vid.writestr(f"graded_scene_{scene['id']:03d}.mp4", f.read())
+                            with open(temp_graded.name, "rb") as f:
+                                zip_file_vid.writestr(f"graded_scene_{scene['id']:03d}.mp4", f.read())
+                                
+                            render_bar.progress((idx + 1) / len(st.session_state.vid_scenes))
                             
-                        render_bar.progress((idx + 1) / len(st.session_state.vid_scenes))
-                        
-                render_status.success("🎉 Alle Clips in Master-Qualität gerendert und verpackt!")
-                
-                st.download_button(
-                    label="💾 Download Spliced & Graded Scenes (.zip)",
-                    data=zip_buffer_vid.getvalue(),
-                    file_name="master_graded_scenes.zip",
-                    mime="application/zip",
-                    use_container_width=True
-                )
-                
-            if st.button("🔄 Neustart (Anderes Video analysieren)"):
-                reset_vid_state()
-                st.rerun()
+                    render_status.success("🎉 Alle Clips in Master-Qualität gerendert und verpackt!")
+                    
+                    st.download_button(
+                        label="💾 Download Spliced & Graded Scenes (.zip)",
+                        data=zip_buffer_vid.getvalue(),
+                        file_name="master_graded_scenes.zip",
+                        mime="application/zip",
+                        use_container_width=True
+                    )
+                    
+                if st.button("🔄 Neustart (Anderes Video analysieren)"):
+                    reset_vid_state()
+                    st.rerun()
 
-        video_look_dev_panel()
+            video_look_dev_panel()
