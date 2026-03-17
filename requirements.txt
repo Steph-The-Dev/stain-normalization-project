@@ -4,3 +4,4 @@ numpy
 zipfile
 io
 matplotlib
+base64
