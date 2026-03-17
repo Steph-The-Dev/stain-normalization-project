@@ -17,38 +17,48 @@ def format_timecode(seconds):
 def generate_fast_rgb_parade(image_bgr, scope_width=256, scope_height=400):
     """
     Rendert eine RGB-Parade als reines Pixel-Array (2D Histogramm).
-    Löste das Matplotlib-Problem und ist 100x schneller (Live-Scrubbing!).
+    Mit logarithmischer Kompression für maximale Sichtbarkeit der Waveforms!
     """
-    # 1. Bild verkleinern (für Performance)
+    # 1. Bild verkleinern
     img = cv2.resize(image_bgr, (scope_width, 128))
     img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     
-    # 2. Schwarze Leinwand für die Parade (R, G, B nebeneinander)
-    parade = np.zeros((scope_height, scope_width * 3, 3), dtype=np.uint8)
+    # Schwarze Leinwand (nutzen erst float32 für präzise Mathematik)
+    parade = np.zeros((scope_height, scope_width * 3, 3), dtype=np.float32)
     
     for i in range(3): # 0=Rot, 1=Grün, 2=Blau
         channel = img_rgb[:, :, i]
         chan_scope = np.zeros((256, scope_width), dtype=np.float32)
         
-        # 3. 2D Histogramm: Zähle Helligkeitswerte pro Spalte
+        # 2. 2D Histogramm: Zähle Helligkeitswerte pro Spalte
         for x in range(scope_width):
             col_data = channel[:, x]
             hist = np.bincount(col_data, minlength=256)
             chan_scope[:, x] = hist[:256]
             
-        # 4. Gamma-Korrektur: Lässt die Pixel leuchten wie bei einem echten Phosphor-Scope
-        chan_scope = np.power(chan_scope / (chan_scope.max() + 1e-5), 0.4) * 255
+        # --- DER FIX: LOGARITHMISCHE KOMPRESSION ---
+        # np.log1p (Logarithmus + 1) verhindert Fehler bei 0 und boostet schwache Signale enorm!
+        chan_scope = np.log1p(chan_scope)
+        
+        # 3. Normalisieren auf 0.0 bis 1.0
+        max_val = chan_scope.max()
+        if max_val > 0:
+            chan_scope = chan_scope / max_val
+            
+        # 4. Gamma-Kurve & Gain-Boost (Macht die Pixel richtig schön hell und "leuchtend")
+        chan_scope = np.power(chan_scope, 0.6) * 255  # Gamma
+        chan_scope = np.clip(chan_scope * 1.5, 0, 255) # Gain (1.5x Helligkeit)
         
         # 5. Vertikal spiegeln (Weiß/255 soll oben sein)
         chan_scope = np.flipud(chan_scope)
         chan_scope = cv2.resize(chan_scope, (scope_width, scope_height))
         
-        # 6. In die Parade einfügen (auf dem jeweiligen Farbkanal)
+        # 6. In die Parade einfügen
         x_offset = i * scope_width
-        parade[:, x_offset:x_offset+scope_width, i] = chan_scope.astype(np.uint8)
+        parade[:, x_offset:x_offset+scope_width, i] = chan_scope
         
-    return parade
-
+    # Am Ende zurück in 8-Bit Bilddaten umwandeln
+    return parade.astype(np.uint8)
 # Importiere BEIDE Kern-Funktionen
 from src.reinhard import normalize_stain_reinhard_hsv_final, normalize_stain_reinhard_custom
 
