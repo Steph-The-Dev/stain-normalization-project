@@ -7,8 +7,9 @@
 
 A cloud-ready, highly interactive computer vision tool bridging the gap between video post-production pipelines and medical data engineering. Designed to normalize H&E whole-slide images (WSI) and scanner video feeds using smart tissue masking and real-time proxy rendering.
 
-![App Demo](assets/histological-stain-normalization.gif) 
-*(⬆️ Note: See the live app for a full demonstration)*
+![App Demo](assets/histological-stain-normalization.gif)
+
+*(⬆️ Note: [See the live app for a full demonstration](https://stain-normalization-pro.streamlit.app/))*
 
 ---
 
