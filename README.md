@@ -58,11 +58,11 @@ For Data Science workflows, it is highly recommended to use **Mamba** (a faster 
 
 ```bash
 # Using Mamba (Recommended for speed)
-mamba env create -f environment.yml
+mamba env create -f environment.local.yml
 mamba activate stain-norm-env
 
 # Or using Conda
-conda env create -f environment.yml
+conda env create -f environment.local.yml
 conda activate stain-norm-env
 ```
 
@@ -70,7 +70,8 @@ conda activate stain-norm-env
 ```bash
 git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
 cd stain-normalization-project
-pip install .
+# Note: Rename pyproject.local.toml to pyproject.toml if using PEP 517 build tools
+pip install -r requirements.txt
 streamlit run app.py
 ```
 
