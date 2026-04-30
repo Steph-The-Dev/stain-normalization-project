@@ -44,22 +44,33 @@ Designed for continuous WSI scanner feeds (e.g., Tissue Microarrays):
 
 ## 🏗️ Architecture & Tech Stack
 * **Core Logic:** `Python`, `OpenCV`, `NumPy` (Modularized in `src/reinhard.py`)
-* **Frontend:** `Streamlit` utilizing `@st.fragment` caching for localized, zero-latency DOM updates.
-* **Quality Assurance:** `pytest` (Unit tests ensuring shape consistency, zero-division protection, and dual-engine coverage).
+* **CLI Tools:** `src/batch_process.py` and `src/video_process.py` for headless automation.
+* **Frontend:** `Streamlit` with a clean separation of concerns using `src/ui_utils.py`.
+* **Quality Assurance:** `pytest` (Unit tests with 100% core logic coverage, ensuring shape consistency and zero-division protection).
+* **Packaging:** `pyproject.toml` (Modern PEP 517/518 standard).
 
 ---
 
 ## 🚀 Run it yourself
 
-### Try it live in the browser (Recommended)
-Fully deployed on Streamlit Community Cloud. No installation required.
-👉 **[[Stain Normalization App auf Streamlit](https://stain-normalization-pro.streamlit.app/)]**
+### Environment Management (Recommended)
+For Data Science workflows, it is highly recommended to use **Mamba** (a faster `conda` alternative) for environment management:
 
-### Local Installation
+```bash
+# Using Mamba (Recommended for speed)
+mamba env create -f environment.yml
+mamba activate stain-norm-env
+
+# Or using Conda
+conda env create -f environment.yml
+conda activate stain-norm-env
+```
+
+### Local Installation (Alternative)
 ```bash
 git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
 cd stain-normalization-project
-pip install -r requirements.txt
+pip install .
 streamlit run app.py
 ```
 
