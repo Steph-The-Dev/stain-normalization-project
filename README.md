@@ -45,16 +45,6 @@ $$P_{out} = (P_{src} - \mu_{src}) \cdot \frac{\sigma_{trg}}{\sigma_{src}} + \mu_
 
 ---
 
-## 📊 Results
-
-|                    Original Slide (Source)                    |                        Target Template                        |                     Normalized Result                      |
-| :-----------------------------------------------------------: | :-----------------------------------------------------------: | :--------------------------------------------------------: |
-| ![Source](https://via.placeholder.com/200?text=Stained+Slide) | ![Target](https://via.placeholder.com/200?text=Gold+Standard) | ![Result](https://via.placeholder.com/200?text=Normalized) |
-
-_(Note: High-resolution comparisons will be added as the project progresses.)_
-
----
-
 ## ⚙️ Usage & Reproducibility
 
 To ensure transparency and reproducibility, this repository separates the mathematical transformation logic from the presentation layer. It includes a dedicated visualization tool to generate standardized, publication-ready comparisons.
