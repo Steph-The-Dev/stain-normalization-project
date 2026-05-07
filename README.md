@@ -1,79 +1,97 @@
-# 🔬 Histological Stain Normalization Suite
-**Post-Production Workflows for Digital Pathology**
+# Automated Stain Normalization in Digital Pathology
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-Cloud_Ready-FF4B4B.svg)](https://streamlit.io/)
-[![OpenCV](https://img.shields.io/badge/OpenCV-Image_Processing-green.svg)](https://opencv.org/)
+### Bridging Classical Imaging Physics and Modern Computer Vision
 
-A cloud-ready, highly interactive computer vision tool bridging the gap between video post-production pipelines and medical data engineering. Designed to normalize H&E whole-slide images (WSI) and scanner video feeds using smart tissue masking and real-time proxy rendering.
+![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
+![PyTorch](https://img.shields.io/badge/PyTorch-Learning-red.svg)
 
-![App Demo](assets/histological-stain-normalization.gif)
+## 📌 Overview
 
-*(⬆️ Note: [See the live app for a full demonstration](https://stain-normalization-pro.streamlit.app/))*
+In digital pathology, the "Domain Shift" caused by variations in histological staining protocols (H&E) represents a significant hurdle for robust AI diagnostics. This project implements a high-precision normalization pipeline to ensure data consistency across different laboratory environments and sensor systems.
 
----
-
-## 🧠 The Concept: Why Post-Production?
-In digital pathology, algorithms often fail because tissue scans from different laboratories exhibit massive color variations. While the statistical **Reinhard Method** is a standard approach for color matching, it has two major flaws:
-1. It incorporates the bright white background (glass slide) into its statistics.
-2. It completely overwrites the natural luminance variance (micro-contrast) of the source tissue, often leading to clipped highlights and crushed shadows.
-
-**The Solution:** This suite introduces professional compositing and color grading techniques to data science:
-* **Chroma/Luma Keying:** Generates dynamic HSV or Grayscale masks to isolate tissue *before* calculating color statistics.
-* **Luma Preservation (Blend Node):** Acts as an opacity slider for the L-channel (LAB color space), allowing users to perfectly mix the target's color (Hue/Sat) with the source's natural micro-contrast.
+**Key Objective:** Minimize variance in histological slides by aligning color distributions in perceptually uniform color spaces.
 
 ---
 
-## ✨ Key Features & Workflows
+## 🔬 The "Bridge Builder" Approach
 
-### 1. 📷 Single Image Look Dev (Real-Time)
-* **Proxy-Workflow:** UI renders on scaled-down proxy images, reducing matrix calculation latency from ~500ms to <10ms.
-* **Hardware-Style Scopes:** Custom built, ultra-fast 2D-Histogram RGB Parades (rendered via pure NumPy/OpenCV) update in real-time alongside slider inputs.
-* **High-Res Export:** Dedicated render engine applies look-dev settings to the original 4K master files for a lossless PNG download.
+Unlike "black-box" approaches, this pipeline leverages **Imaging Physics** and **Statistical Signal Processing**:
 
-### 2. 📂 Cloud Batch Processing
-Upload hundreds of images at once. Dial in your keying and luma settings using the live proxy preview of the first image, then deploy the render job across the entire batch. Exports as a clean `.zip` archive.
-
-### 3. 🎬 Smart Video Auto-Splicer (Two-Step Workflow)
-Designed for continuous WSI scanner feeds (e.g., Tissue Microarrays):
-* **Step 1 (Analysis):** Detects hard scene cuts via frame differencing and splices the master video into individual sub-clips.
-* **Step 2 (Individual Look Dev):** Generates a thumbnail UI for every detected scene. Users can apply individual Keying and Luma Preservation settings *per clip*.
-* **Step 3 (Render):** Renders all normalized sub-clips at full resolution and bundles them into a master `.zip`.
+1.  **Classical Foundation:** Implementation of the **Reinhard Method** for global color transfer.
+2.  **Color Science:** Utilizing the **CIELAB color space** to decouple luminance from chromaticity—minimizing structural artifacts during normalization.
+3.  **Future Evolution:** Scaling the pipeline towards **Generative Adversarial Networks (CycleGANs)** to handle non-linear stain variations.
 
 ---
 
-## 🏗️ Architecture & Tech Stack
-* **Core Logic:** `Python`, `OpenCV`, `NumPy` (Modularized in `src/reinhard.py`)
-* **CLI Tools:** `src/batch_process.py` and `src/video_process.py` for headless automation.
-* **Frontend:** `Streamlit` with a clean separation of concerns using `src/ui_utils.py`.
-* **Quality Assurance:** `pytest` (Unit tests with 100% core logic coverage, ensuring shape consistency and zero-division protection).
-* **Packaging:** `pyproject.toml` (Modern PEP 517/518 standard).
+## 🧮 Methodology: The Reinhard Transformation
+
+The core of this implementation is a statistical alignment of the source image ($S$) to a target "Gold Standard" ($T$). We perform a linear transformation of the color distribution for each channel:
+
+$$P_{out} = (P_{src} - \mu_{src}) \cdot \frac{\sigma_{trg}}{\sigma_{src}} + \mu_{trg}$$
+
+- **Centering:** Removing the source mean ($\mu_{src}$).
+- **Rescaling:** Matching the target standard deviation ($\sigma_{trg}$).
+- **Shifting:** Aligning to the target mean ($\mu_{trg}$).
 
 ---
 
-## 🚀 Run it yourself
+## 🛠 Tech Stack
 
-### Environment Management (Recommended)
-For Data Science workflows, it is highly recommended to use **Mamba** (a faster `conda` alternative) for environment management:
+- **Python 3.9+**
+- **OpenCV & NumPy:** For high-performance matrix operations and color space transformations.
+- **PyTorch:** Transitioning the pipeline into a GPU-accelerated deep learning framework.
+- **Matplotlib:** For histogram analysis and visual validation.
+
+---
+
+## 📊 Results
+
+|                    Original Slide (Source)                    |                        Target Template                        |                     Normalized Result                      |
+| :-----------------------------------------------------------: | :-----------------------------------------------------------: | :--------------------------------------------------------: |
+| ![Source](https://via.placeholder.com/200?text=Stained+Slide) | ![Target](https://via.placeholder.com/200?text=Gold+Standard) | ![Result](https://via.placeholder.com/200?text=Normalized) |
+
+_(Note: High-resolution comparisons will be added as the project progresses.)_
+
+---
+
+## ⚙️ Usage & Reproducibility
+
+To ensure transparency and reproducibility, this repository separates the mathematical transformation logic from the presentation layer. It includes a dedicated visualization tool to generate standardized, publication-ready comparisons.
+
+### 1. Run the Normalization Pipeline
+
+Apply the Reinhard transformation to your raw data:
 
 ```bash
-# Using Mamba (Recommended for speed)
-mamba env create -f environment.local.yml
-mamba activate stain-norm-env
-
-# Or using Conda
-conda env create -f environment.local.yml
-conda activate stain-norm-env
+python normalization.py --source data/raw_slide.jpg --target data/gold_standard.jpg --output data/normalized_slide.jpg
 ```
 
-### Local Installation (Alternative)
+### 2. Generate the Visual Comparison
+
+Use the included `visualizer.py` script to create a high-resolution, 16:9 side-by-side comparison of the domain shift before and after the transformation.
+
 ```bash
-git clone https://github.com/Steph-The-Dev/stain-normalization-project.git
-cd stain-normalization-project
-# Note: Rename pyproject.local.toml to pyproject.toml if using PEP 517 build tools
-pip install -r requirements.txt
-streamlit run app.py
+python visualizer.py
 ```
+
+_Note: Please ensure you do not commit raw clinical datasets to GitHub. Keep your image data in a local `data/` or `images/` directory that is added to your `.gitignore`._
 
 ---
-*Developed as part of the preparation for the MSc Applied Information and Data Science at HSLU.*
+
+## 🚀 Roadmap
+
+- [x] Implementation of Reinhard Color Transfer (NumPy/OpenCV)
+- [x] Automated batch processing for large-scale WSI (Whole Slide Imaging)
+- [ ] Integration of PyTorch-based Tensor processing
+- [ ] Research: Unpaired Image-to-Image Translation using CycleGANs
+
+---
+
+## 👨‍💻 About the Author
+
+**Stephan Pfeiffer** _Senior Imaging Expert | Data Science & Computer Vision Transition_ Combining 20 years of experience in high-end signal processing with cutting-edge AI methodologies.
+
+- **Strategy:** "Bridge Builder" – Connecting Domain Expertise with AI Implementation.
+- **Academic Path:** Preparing for **GSERM (University of St. Gallen)** and **MSc in Applied Information and Data Science (HSLU)**.
+- **Portfolio:** [stephthedev.de](https://www.stephthedev.de)
