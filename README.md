@@ -12,6 +12,8 @@ In digital pathology, the "Domain Shift" caused by variations in histological st
 
 **Key Objective:** Minimize variance in histological slides by aligning color distributions in perceptually uniform color spaces.
 
+*(⬆️ Note: [See the live app for a full demonstration](https://stain-normalization-pro.streamlit.app/))*
+
 ---
 
 ## 🔬 The "Bridge Builder" Approach
