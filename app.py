@@ -7,6 +7,8 @@ import zipfile
 import io
 
 from src.reinhard import normalize_stain_reinhard_hsv, normalize_stain_reinhard_luma
+from src.normalizers import ReinhardNormalizer, MacenkoNormalizer, CUTStainNormalizer
+from src.metrics import evaluate_normalization
 from src.ui_utils import (
     format_timecode, 
     generate_fast_rgb_parade, 
@@ -48,35 +50,95 @@ with tab_single:
     with col_up2:
         target_file = st.file_uploader("Upload Target (Reference)", type=["jpg", "png", "tif"], key="trg_single")
 
-    st.divider()
+    use_demo = st.checkbox("🧪 Use Built-in Demo Samples (data/raw/source.tif & target.tif)", value=False, key="demo_single")
 
-    if source_file and target_file:
+    raw_src, raw_trg = None, None
+    if use_demo:
+        demo_src_path = "data/raw/source.tif"
+        demo_trg_path = "data/raw/target.tif"
+        if os.path.exists(demo_src_path) and os.path.exists(demo_trg_path):
+            raw_src = cv2.imread(demo_src_path)
+            raw_trg = cv2.imread(demo_trg_path)
+        else:
+            st.warning("Built-in demo images not found in data/raw.")
+    elif source_file and target_file:
         raw_src = load_uploaded_image(source_file)
         raw_trg = load_uploaded_image(target_file)
 
+    st.divider()
+
+    if raw_src is not None and raw_trg is not None:
         # Proxies (max 300px height) significantly boost UI responsiveness
         src_proxy = create_ui_proxy(raw_src, max_height=300)
         trg_proxy = create_ui_proxy(raw_trg, max_height=300)
 
-        @st.fragment
-        def look_dev_panel():
-            st.markdown("### 🎛️ Grading Controls")
-            
-            col_set1, col_set2, col_set3, col_set4 = st.columns([1, 1.5, 1.5, 1])
-            with col_set1:
-                mask_method_single = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_single")
-            with col_set2:
-                if mask_method_single == "HSV (Saturation)":
-                    threshold_single = st.slider("Mask Threshold", 0, 100, 15, key="slider_single_hsv")
-                else:
-                    threshold_single = st.slider("Mask Threshold", 0, 255, 210, key="slider_single_luma")
-            with col_set3:
-                luma_blend_single = st.slider("Luma Preservation (Contrast)", 0.0, 1.0, 0.2, step=0.05, key="blend_single")
-            with col_set4:
-                show_scopes_single = st.toggle("📊 Show RGB Parades", value=True, key="scope_single")
+        st.markdown("### 🎛️ Grading & Normalizer Model Controls")
+        
+        col_algo, col_ctrl, col_scope = st.columns([1.5, 3.5, 1])
+        with col_algo:
+            algo_choice = st.selectbox(
+                "Normalization Model", 
+                ["Reinhard (CIELAB)", "Macenko (SVD Optical Density)", "CUT (Deep Learning GAN)"],
+                key="algo_single"
+            )
+        with col_scope:
+            show_scopes_single = st.toggle("📊 Show RGB Parades", value=True, key="scope_single")
 
-            # Fast calculation on Proxy
-            if mask_method_single == "HSV (Saturation)":
+        # Model-Specific Dynamic Controls
+        if "Macenko" in algo_choice:
+            with col_ctrl:
+                col_m1, col_m2 = st.columns(2)
+                with col_m1:
+                    macenko_thresh = st.slider("Tissue Mask Saturation Threshold", 0, 100, 15, key="macenko_thresh")
+                with col_m2:
+                    macenko_beta = st.slider("OD Background Cutoff (Beta)", 0.01, 0.40, 0.15, step=0.01, key="macenko_beta")
+            
+            norm = MacenkoNormalizer(saturation_threshold=macenko_thresh, beta=macenko_beta)
+            res_proxy = norm.fit_transform(src_proxy, trg_proxy)
+
+        elif "CUT" in algo_choice:
+            with col_ctrl:
+                col_cut1, col_cut2, col_cut3 = st.columns([2, 2, 1])
+                with col_cut1:
+                    cut_epochs = st.slider("Training Epochs", 1, 30, 10, key="cut_epochs_slider")
+                with col_cut2:
+                    cut_color_weight = st.slider("Stain Strength (Color Weight)", 1.0, 20.0, 5.0, step=0.5, key="cut_color_weight_slider")
+                with col_cut3:
+                    train_cut_btn = st.button("🏋️ Train CUT Model", width='stretch', key="btn_train_cut")
+
+            if train_cut_btn or 'cut_normalizer' not in st.session_state:
+                st.session_state.cut_normalizer = CUTStainNormalizer(
+                    ngf=16, num_blocks=3, lr=3e-3, lambda_color=cut_color_weight
+                )
+
+            if train_cut_btn or not st.session_state.cut_normalizer.is_fitted:
+                if train_cut_btn:
+                    with st.spinner(f"Training CUT Generator for {cut_epochs} epochs with Stain Weight {cut_color_weight:.1f}..."):
+                        st.session_state.cut_normalizer.fit(trg_proxy, source_image=src_proxy, num_epochs=cut_epochs, batch_size=1)
+                    st.success("✅ CUT Generator successfully trained!")
+                else:
+                    st.info("ℹ️ **Neural Network Status:** CUT model is initialized. Click **'🏋️ Train CUT Model'** above to optimize generator weights on your target slide!")
+
+            if st.session_state.cut_normalizer.is_fitted:
+                res_proxy = st.session_state.cut_normalizer.transform(src_proxy)
+            else:
+                res_proxy = src_proxy.copy()
+
+        else:
+            with col_ctrl:
+                col_r1, col_r2, col_r3 = st.columns(3)
+                with col_r1:
+                    mask_method_single = st.radio("Masking Method", ["HSV (Saturation)", "Luma (Grayscale)"], key="method_single")
+                with col_r2:
+                    if mask_method_single == "HSV (Saturation)":
+                        threshold_single = st.slider("Mask Threshold", 0, 100, 15, key="slider_single_hsv")
+                    else:
+                        threshold_single = st.slider("Mask Threshold", 0, 255, 210, key="slider_single_luma")
+                with col_r3:
+                    luma_blend_single = st.slider("Luma Preservation", 0.0, 1.0, 0.2, step=0.05, key="blend_single")
+
+            mask_m = "hsv" if mask_method_single == "HSV (Saturation)" else "luma"
+            if mask_m == "hsv":
                 res_proxy = normalize_stain_reinhard_hsv(
                     src_proxy, trg_proxy, 
                     src_sat_thresh=threshold_single, 
@@ -91,69 +153,77 @@ with tab_single:
                     luma_blend=luma_blend_single
                 )
 
-            st.markdown("### 📺 Grading Monitor")
-            
-            img_width = 350
-            c1, c2, c3 = st.columns(3)
-            
-            with c1:
-                st.markdown("**1. Source**")
-                st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                if show_scopes_single: 
-                    st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
+        # Quantitative evaluation metrics
+        metrics = evaluate_normalization(src_proxy, res_proxy, trg_proxy)
+        st.markdown("### 📊 Quantitative Quality Metrics (Guardrails)")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("SSIM (Morphology Preservation)", f"{metrics['ssim_structural_preservation']:.3f}")
+        m2.metric("PSNR (dB)", f"{metrics['psnr_db']:.2f}")
+        m3.metric("Color Delta L (Luminance)", f"{metrics['target_delta_L']:.2f}")
+        m4.metric("Color Delta ab (Chromaticity)", f"{metrics['target_delta_ab']:.2f}")
 
-            with c2:
-                st.markdown("**2. Target**")
-                st.image(cv2.cvtColor(trg_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                if show_scopes_single: 
-                    st.image(generate_fast_rgb_parade(trg_proxy), width=img_width)
+        st.markdown("### 📺 Grading Monitor")
+        
+        img_width = 350
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            st.markdown("**1. Source**")
+            st.image(cv2.cvtColor(src_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+            if show_scopes_single: 
+                st.image(generate_fast_rgb_parade(src_proxy), width=img_width)
 
-            with c3:
-                st.markdown("**3. Result Preview**")
-                st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
-                if show_scopes_single: 
-                    st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
+        with c2:
+            st.markdown("**2. Target**")
+            st.image(cv2.cvtColor(trg_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+            if show_scopes_single: 
+                st.image(generate_fast_rgb_parade(trg_proxy), width=img_width)
 
-            st.divider()
+        with c3:
+            st.markdown("**3. Result Preview**")
+            st.image(cv2.cvtColor(res_proxy, cv2.COLOR_BGR2RGB), width=img_width)
+            if show_scopes_single: 
+                st.image(generate_fast_rgb_parade(res_proxy), width=img_width)
 
-            # --- FULL RESOLUTION EXPORT ---
-            st.markdown("### 💾 Export Master Image")
-            
-            col_render, col_download = st.columns(2)
-            
-            with col_render:
-                if st.button("🚀 Render High-Res Image", width='stretch'):
-                    with st.spinner("Calculating full resolution..."):
-                        if mask_method_single == "HSV (Saturation)":
-                            res_full = normalize_stain_reinhard_hsv(
-                                raw_src, raw_trg, 
-                                src_sat_thresh=threshold_single, 
-                                target_sat_thresh=threshold_single, 
-                                luma_blend=luma_blend_single
-                            )
+        st.divider()
+
+        # --- FULL RESOLUTION EXPORT ---
+        st.markdown("### 💾 Export Master Image")
+        
+        col_render, col_download = st.columns(2)
+        
+        with col_render:
+            if st.button("🚀 Render High-Res Image", width='stretch'):
+                with st.spinner("Calculating full resolution..."):
+                    if "Macenko" in algo_choice:
+                        norm_full = MacenkoNormalizer(saturation_threshold=macenko_thresh, beta=macenko_beta)
+                        res_full = norm_full.fit_transform(raw_src, raw_trg)
+                    elif "CUT" in algo_choice:
+                        if 'cut_normalizer' in st.session_state and st.session_state.cut_normalizer.is_fitted:
+                            res_full = st.session_state.cut_normalizer.transform(raw_src)
                         else:
-                            res_full = normalize_stain_reinhard_luma(
-                                raw_src, raw_trg, 
-                                src_thresh=threshold_single, 
-                                target_thresh=threshold_single, 
-                                luma_blend=luma_blend_single
-                            )
-                        
-                        is_success, buffer = cv2.imencode(".png", res_full)
-                        if is_success:
-                            st.session_state['single_download_ready'] = buffer.tobytes()
+                            norm_full = CUTStainNormalizer(ngf=16, num_blocks=3, lr=3e-3)
+                            res_full = norm_full.fit_transform(raw_src, raw_trg)
+                    else:
+                        mask_m = "hsv" if mask_method_single == "HSV (Saturation)" else "luma"
+                        norm_full = ReinhardNormalizer(mask_method=mask_m, threshold=threshold_single)
+                        res_full = norm_full.fit_transform(raw_src, raw_trg)
+                    
+                    is_success, buffer = cv2.imencode(".png", res_full)
+                    if is_success:
+                        st.session_state['single_download_ready'] = buffer.tobytes()
 
-            with col_download:
-                if 'single_download_ready' in st.session_state:
-                    st.download_button(
-                        label="⬇️ Download .PNG",
-                        data=st.session_state['single_download_ready'],
-                        file_name="normalized_master.png",
-                        mime="image/png",
-                        width='stretch'
-                    )
-
-        look_dev_panel()
+        with col_download:
+            if 'single_download_ready' in st.session_state:
+                st.download_button(
+                    label="⬇️ Download .PNG",
+                    data=st.session_state['single_download_ready'],
+                    file_name="normalized_master.png",
+                    mime="image/png",
+                    width='stretch'
+                )
+    else:
+        st.info("💡 **Getting Started:** Upload both a **Source** and **Target** image above, or check **'🧪 Use Built-in Demo Samples'** to display the normalizer controls and metrics immediately!")
 
 # ==========================================
 # TAB 2: BATCH PROCESSING

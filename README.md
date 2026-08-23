@@ -18,25 +18,17 @@ In digital pathology, the "Domain Shift" caused by variations in histological st
 
 ---
 
-## 🔬 The "Bridge Builder" Approach
+## 🔬 Methodologies & Normalizer Strategies
 
-Unlike "black-box" approaches, this pipeline leverages **Imaging Physics** and **Statistical Signal Processing**:
+This pipeline combines classical analytical color space transformations with modern deep generative networks via a polymorphic Strategy Pattern:
 
-1.  **Classical Foundation:** Implementation of the **Reinhard Method** for global color transfer.
-2.  **Color Science:** Utilizing the **CIELAB color space** to decouple luminance from chromaticity—minimizing structural artifacts during normalization.
-3.  **Future Evolution:** Scaling the pipeline towards **Generative Adversarial Networks (CycleGANs)** to handle non-linear stain variations.
-
----
-
-## 🧮 Methodology: The Reinhard Transformation
-
-The core of this implementation is a statistical alignment of the source image ($S$) to a target "Gold Standard" ($T$). We perform a linear transformation of the color distribution for each channel:
-
-$$P_{out} = (P_{src} - \mu_{src}) \cdot \frac{\sigma_{trg}}{\sigma_{src}} + \mu_{trg}$$
-
-- **Centering:** Removing the source mean ($\mu_{src}$).
-- **Rescaling:** Matching the target standard deviation ($\sigma_{trg}$).
-- **Shifting:** Aligning to the target mean ($\mu_{trg}$).
+1. **Reinhard Normalization (CIELAB Color Space)**  
+   Aligns global color distributions by matching channel-wise mean ($\mu$) and standard deviation ($\sigma$):
+   $$P_{\text{out}} = (P_{\text{src}} - \mu_{\text{src}}) \cdot \frac{\sigma_{\text{trg}}}{\sigma_{\text{src}}} + \mu_{\text{trg}}$$
+2. **Macenko Normalization (Optical Density SVD Vector Decomposition)**  
+   Decomposes RGB pixels into Optical Density (OD) space via SVD to extract hematoxylin & eosin stain vectors, matching maximum stain concentrations.
+3. **Contrastive Unpaired Translation (CUT & SSIM Deep Learning)**  
+   Uses a ResNet Generator with PatchNCE contrastive feature loss and structural SSIM loss. Includes Nearest-Neighbor upsampling to eliminate deconvolution checkerboards and continuous sigmoidal alpha matting ($15\times15$ Gaussian feathering) for seamless tissue-to-background transitions.
 
 ---
 
@@ -76,9 +68,13 @@ _Note: Please ensure you do not commit raw clinical datasets to GitHub. Keep you
 ## 🚀 Roadmap
 
 - [x] Implementation of Reinhard Color Transfer (NumPy/OpenCV)
+- [x] Implementation of Macenko SVD Stain Vector Matrix Normalizer
+- [x] Quantitative Evaluation Benchmark (SSIM, PSNR, CIELAB Delta L/ab)
 - [x] Automated batch processing for large-scale WSI (Whole Slide Imaging)
-- [ ] Integration of PyTorch-based Tensor processing
-- [ ] Research: Unpaired Image-to-Image Translation using CycleGANs
+- [x] Integration of PyTorch-based Tensor processing & Unpaired Dataset Loader
+- [x] Research: Unpaired Image-to-Image Translation using Contrastive Unpaired Translation (CUT) & SSIM Loss
+- [x] Artifact-free Neural Generator Architecture (Nearest-Neighbor Upsampling, Continuous Sigmoidal Alpha Matting)
+- [x] ONNX Model Export & Deployment Pipeline
 
 ---
 
