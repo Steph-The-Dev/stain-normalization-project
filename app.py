@@ -54,8 +54,9 @@ with tab_single:
 
     raw_src, raw_trg = None, None
     if use_demo:
-        demo_src_path = "data/raw/source.tif"
-        demo_trg_path = "data/raw/target.tif"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        demo_src_path = os.path.join(base_dir, "data", "raw", "source.tif")
+        demo_trg_path = os.path.join(base_dir, "data", "raw", "target.tif")
         if os.path.exists(demo_src_path) and os.path.exists(demo_trg_path):
             raw_src = cv2.imread(demo_src_path)
             raw_trg = cv2.imread(demo_trg_path)

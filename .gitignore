@@ -32,9 +32,9 @@ data/processed/*
 *.mov
 *.avi
 *.zip
-*.tif
-*.tiff
-# (Bilder wie .jpg oder .png für das README oder UI-Mockups bleiben erlaubt)
+# Whitelist lightweight demo sample files for Streamlit Cloud:
+!data/raw/source.tif
+!data/raw/target.tif
 
 # Streamlit (Falls du später API-Keys nutzt)
 .streamlit/secrets.toml
