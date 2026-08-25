@@ -74,18 +74,28 @@ def get_mean_std_masked(image: npt.NDArray[np.float32], mask: Optional[npt.NDArr
     return mean.flatten().astype(np.float32), std.flatten().astype(np.float32)
 
 
+def _refine_mask(mask: npt.NDArray[np.uint8]) -> npt.NDArray[np.uint8]:
+    """Morphological open+close to remove mask noise and fill small holes."""
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+    return mask
+
+
 def _apply_reinhard_stats(
     src_lab: npt.NDArray[np.float32], 
     src_mean: npt.NDArray[np.float32], 
     src_std: npt.NDArray[np.float32], 
     target_mean: npt.NDArray[np.float32], 
     target_std: npt.NDArray[np.float32], 
-    luma_blend: float = 0.0
+    luma_blend: float = 0.0,
+    mask: Optional[npt.NDArray[np.uint8]] = None
 ) -> npt.NDArray[np.uint8]:
     """
     Internal helper to apply the Reinhard statistical transformation.
     """
     # Prevent division by zero
+    src_std = src_std.copy()
     src_std[src_std == 0] = 1e-5
 
     l, a, b = cv2.split(src_lab)
@@ -101,9 +111,17 @@ def _apply_reinhard_stats(
     b_norm = (b - src_mean[2]) * (target_std[2] / src_std[2]) + target_mean[2]
 
     # Merge and clip to valid range
-    result_lab = cv2.merge((l_final, a_norm, b_norm))
-    result_lab = np.clip(result_lab, 0, 255).astype(np.uint8)
-    return cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
+    normalized_lab = cv2.merge((l_final, a_norm, b_norm))
+    normalized_lab = np.clip(normalized_lab, 0, 255)
+
+    if mask is not None:
+        # Alpha blend: only transform tissue pixels, preserve original background
+        mask_f = (mask > 0).astype(np.float32)[:, :, None]
+        result_lab = normalized_lab * mask_f + src_lab * (1.0 - mask_f)
+    else:
+        result_lab = normalized_lab
+
+    return cv2.cvtColor(result_lab.astype(np.uint8), cv2.COLOR_LAB2BGR)
 
 
 def normalize_stain_reinhard_luma(
@@ -138,12 +156,14 @@ def normalize_stain_reinhard_luma(
     target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype(np.float32)
 
     src_mask = get_tissue_mask_luma(src_img, threshold_value=src_thresh)
+    src_mask = _refine_mask(src_mask)
     target_mask = get_tissue_mask_luma(target_img, threshold_value=target_thresh)
+    target_mask = _refine_mask(target_mask)
 
     src_mean, src_std = get_mean_std_masked(src_lab, mask=src_mask)
     target_mean, target_std = get_mean_std_masked(target_lab, mask=target_mask)
 
-    return _apply_reinhard_stats(src_lab, src_mean, src_std, target_mean, target_std, luma_blend)
+    return _apply_reinhard_stats(src_lab, src_mean, src_std, target_mean, target_std, luma_blend, mask=src_mask)
 
 
 def normalize_stain_reinhard_hsv(
@@ -178,9 +198,11 @@ def normalize_stain_reinhard_hsv(
     target_lab = cv2.cvtColor(target_img, cv2.COLOR_BGR2LAB).astype(np.float32)
 
     src_mask = get_tissue_mask_hsv(src_img, saturation_threshold=src_sat_thresh)
+    src_mask = _refine_mask(src_mask)
     target_mask = get_tissue_mask_hsv(target_img, saturation_threshold=target_sat_thresh)
+    target_mask = _refine_mask(target_mask)
 
     src_mean, src_std = get_mean_std_masked(src_lab, mask=src_mask)
     target_mean, target_std = get_mean_std_masked(target_lab, mask=target_mask)
 
-    return _apply_reinhard_stats(src_lab, src_mean, src_std, target_mean, target_std, luma_blend)
+    return _apply_reinhard_stats(src_lab, src_mean, src_std, target_mean, target_std, luma_blend, mask=src_mask)

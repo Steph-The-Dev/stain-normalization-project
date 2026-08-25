@@ -14,6 +14,7 @@ from PIL import Image
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 
@@ -140,6 +141,7 @@ class CUTStainNormalizer(BaseStainNormalizer):
                 transforms.RandomCrop((crop_size, crop_size)),
                 transforms.RandomHorizontalFlip(),
                 transforms.RandomVerticalFlip(),
+                transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05, hue=0.02),
                 transforms.ToTensor(),
                 transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
             ])
@@ -159,6 +161,9 @@ class CUTStainNormalizer(BaseStainNormalizer):
             dataloader = [(batch["A"].to(self.device), batch["B"].to(self.device)) for batch in dataset_loader]
         else:
             raise TypeError("target_image_or_dataset must be a numpy image array or UnpairedStainDataset.")
+
+        total_steps = num_epochs * len(dataloader)
+        scheduler = CosineAnnealingLR(optimizer, T_max=max(total_steps, 1), eta_min=self.lr * 0.01)
 
         for epoch in range(num_epochs):
             for src_batch, tgt_batch in dataloader:
@@ -215,6 +220,7 @@ class CUTStainNormalizer(BaseStainNormalizer):
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.generator.parameters(), max_norm=1.0)
                 optimizer.step()
+                scheduler.step()
 
         self.generator.eval()
         self.is_fitted = True

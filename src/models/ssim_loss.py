@@ -43,6 +43,10 @@ def ssim_tensor(
     sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
     sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
 
+    # Constants for SSIM stabilization (based on Wang et al., 2004).
+    # These constants are scaled for an assumed data range of [0, 1] (L=1.0).
+    # c1 = (k1 * L)^2 where k1 = 0.01, L = 1.0 -> 0.0001
+    # c2 = (k2 * L)^2 where k2 = 0.03, L = 1.0 -> 0.0009
     c1 = 0.01 ** 2
     c2 = 0.03 ** 2
 

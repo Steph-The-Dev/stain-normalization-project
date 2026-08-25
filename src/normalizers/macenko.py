@@ -117,6 +117,10 @@ class MacenkoNormalizer(BaseStainNormalizer):
         target_od = rgb_to_od(target_rgb)
         mask = get_tissue_mask_hsv(target_image, saturation_threshold=self.saturation_threshold)
 
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
         self.target_stain_matrix = get_stain_matrix_macenko(target_od, mask, beta=self.beta)
 
         target_od_flat = target_od.reshape(-1, 3)
@@ -137,6 +141,10 @@ class MacenkoNormalizer(BaseStainNormalizer):
         source_rgb = cv2.cvtColor(source_image, cv2.COLOR_BGR2RGB)
         source_od = rgb_to_od(source_rgb)
         mask = get_tissue_mask_hsv(source_image, saturation_threshold=self.saturation_threshold)
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
         source_stain_matrix = get_stain_matrix_macenko(source_od, mask, beta=self.beta)
 
@@ -159,4 +167,9 @@ class MacenkoNormalizer(BaseStainNormalizer):
         normalized_od = normalized_od_flat.reshape(h, w, 3)
 
         normalized_rgb = od_to_rgb(normalized_od)
-        return cv2.cvtColor(normalized_rgb, cv2.COLOR_RGB2BGR)
+        normalized_bgr = cv2.cvtColor(normalized_rgb, cv2.COLOR_RGB2BGR)
+
+        # Preserve original background pixels using tissue mask
+        mask_f = (mask > 0).astype(np.float32)[:, :, None]
+        result = normalized_bgr.astype(np.float32) * mask_f + source_image.astype(np.float32) * (1.0 - mask_f)
+        return np.clip(result, 0, 255).astype(np.uint8)

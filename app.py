@@ -105,7 +105,7 @@ with tab_single:
                 with col_cut2:
                     cut_color_weight = st.slider("Stain Strength (Color Weight)", 1.0, 20.0, 5.0, step=0.5, key="cut_color_weight_slider")
                 with col_cut3:
-                    train_cut_btn = st.button("🏋️ Train CUT Model", width='stretch', key="btn_train_cut")
+                    train_cut_btn = st.button("🏋️ Train CUT Model", use_container_width=True, key="btn_train_cut")
 
             if train_cut_btn or 'cut_normalizer' not in st.session_state:
                 st.session_state.cut_normalizer = CUTStainNormalizer(
@@ -194,7 +194,7 @@ with tab_single:
         col_render, col_download = st.columns(2)
         
         with col_render:
-            if st.button("🚀 Render High-Res Image", width='stretch'):
+            if st.button("🚀 Render High-Res Image", use_container_width=True):
                 with st.spinner("Calculating full resolution..."):
                     if "Macenko" in algo_choice:
                         norm_full = MacenkoNormalizer(saturation_threshold=macenko_thresh, beta=macenko_beta)
@@ -221,7 +221,7 @@ with tab_single:
                     data=st.session_state['single_download_ready'],
                     file_name="normalized_master.png",
                     mime="image/png",
-                    width='stretch'
+                    use_container_width=True
                 )
     else:
         st.info("💡 **Getting Started:** Upload both a **Source** and **Target** image above, or check **'🧪 Use Built-in Demo Samples'** to display the normalizer controls and metrics immediately!")
@@ -301,7 +301,7 @@ with tab_batch:
                 
             st.divider()
             
-            if st.button("🚀 Start Full Batch Render (Apply to all images)", width='stretch'):
+            if st.button("🚀 Start Full Batch Render (Apply to all images)", use_container_width=True):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     progress_bar = st.progress(0)
@@ -340,7 +340,7 @@ with tab_batch:
                     data=zip_buffer.getvalue(),
                     file_name="normalized_batch.zip",
                     mime="application/zip",
-                    width='stretch'
+                    use_container_width=True
                 )
                 
         batch_look_dev_panel()
@@ -461,9 +461,9 @@ with tab_video:
                 
                 with col_ref:
                     st.markdown("#### 🎯 Master Target")
-                    st.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), width='stretch')
+                    st.image(cv2.cvtColor(target_img, cv2.COLOR_BGR2RGB), use_container_width=True)
                     if show_scopes:
-                        st.image(generate_fast_rgb_parade(trg_proxy), width='stretch')
+                        st.image(generate_fast_rgb_parade(trg_proxy), use_container_width=True)
                     st.info("💡 Scroll through the timeline on the left. The target image remains fixed.")
 
                 with col_main:
@@ -506,7 +506,7 @@ with tab_video:
                                         target_thresh=thresh, 
                                         luma_blend=luma_blend_scene
                                     )
-                            except:
+                            except Exception:
                                 res_proxy = src_proxy 
 
                             with col_src:
@@ -525,7 +525,7 @@ with tab_video:
 
                 # --- FINAL RENDER LOOP ---
                 st.markdown("### 💾 Export Master Video")
-                if st.button("🚀 Render Master ZIP (Apply all Settings)", width='stretch'):
+                if st.button("🚀 Render Master ZIP (Apply all Settings)", use_container_width=True):
                     zip_buffer_vid = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer_vid, "w", zipfile.ZIP_DEFLATED) as zip_file_vid:
                         
@@ -567,7 +567,7 @@ with tab_video:
                                             target_thresh=c_thresh, 
                                             luma_blend=c_blend
                                         )
-                                except:
+                                except Exception:
                                     norm = frame
                                     
                                 out_scene.write(norm)
@@ -587,7 +587,7 @@ with tab_video:
                         data=zip_buffer_vid.getvalue(),
                         file_name="master_graded_scenes.zip",
                         mime="application/zip",
-                        width='stretch'
+                        use_container_width=True
                     )
                     
                 if st.button("🔄 Restart (Analyze another video)"):

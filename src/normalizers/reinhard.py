@@ -62,6 +62,10 @@ class ReinhardNormalizer(BaseStainNormalizer):
         else:
             mask = get_tissue_mask_hsv(source_image, saturation_threshold=self.threshold)
 
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
         src_mean, src_std = get_mean_std_masked(src_lab, mask=mask)
         return _apply_reinhard_stats(
             src_lab,
@@ -70,4 +74,5 @@ class ReinhardNormalizer(BaseStainNormalizer):
             self.target_mean,
             self.target_std,
             luma_blend=self.luma_blend,
+            mask=mask,
         )
