@@ -25,10 +25,11 @@ This pipeline combines classical analytical color space transformations with mod
 1. **Reinhard Normalization (CIELAB Color Space)**  
    Aligns global color distributions by matching channel-wise mean ($\mu$) and standard deviation ($\sigma$):
    $$P_{\text{out}} = (P_{\text{src}} - \mu_{\text{src}}) \cdot \frac{\sigma_{\text{trg}}}{\sigma_{\text{src}}} + \mu_{\text{trg}}$$
+   *Includes morphological mask refinement and alpha blending to explicitly preserve the white glass background.*
 2. **Macenko Normalization (Optical Density SVD Vector Decomposition)**  
-   Decomposes RGB pixels into Optical Density (OD) space via SVD to extract hematoxylin & eosin stain vectors, matching maximum stain concentrations.
+   Decomposes RGB pixels into Optical Density (OD) space via SVD to extract hematoxylin & eosin stain vectors, matching maximum stain concentrations. *Integrates morphological mask refinement for cleaner stain vector extraction and background preservation blending.*
 3. **Contrastive Unpaired Translation (CUT & SSIM Deep Learning)**  
-   Uses a ResNet Generator with PatchNCE contrastive feature loss and structural SSIM loss. Includes Nearest-Neighbor upsampling to eliminate deconvolution checkerboards and continuous sigmoidal alpha matting ($15\times15$ Gaussian feathering) for seamless tissue-to-background transitions.
+   Uses a ResNet Generator with PatchNCE contrastive feature loss and structural SSIM loss. Includes Nearest-Neighbor upsampling to eliminate deconvolution checkerboards and continuous sigmoidal alpha matting ($15\times15$ Gaussian feathering) for seamless tissue-to-background transitions. *Features Cosine Annealing learning rate scheduling and Color Jitter augmentations for robust, fast convergence.*
 
 ---
 
@@ -74,7 +75,8 @@ _Note: Please ensure you do not commit raw clinical datasets to GitHub. Keep you
 - [x] Integration of PyTorch-based Tensor processing & Unpaired Dataset Loader
 - [x] Research: Unpaired Image-to-Image Translation using Contrastive Unpaired Translation (CUT) & SSIM Loss
 - [x] Artifact-free Neural Generator Architecture (Nearest-Neighbor Upsampling, Continuous Sigmoidal Alpha Matting)
-- [x] ONNX Model Export & Deployment Pipeline
+- [x] Algorithmic Quality Improvements (Tissue-Mask Background Preservation, Cosine Annealing LR, Color Jitter Augmentation)
+- [x] ONNX Model Export & Streamlit Cloud Deployment Pipeline
 
 ---
 
