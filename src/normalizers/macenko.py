@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 from src.normalizers.base import BaseStainNormalizer
-from src.reinhard import get_tissue_mask_hsv
+from src.tissue_mask import get_tissue_mask_hsv
 
 
 def rgb_to_od(img: npt.NDArray[np.uint8], io: float = 255.0) -> npt.NDArray[np.float64]:

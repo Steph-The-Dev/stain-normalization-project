@@ -1,0 +1,6 @@
+# Development & test dependencies (runtime deps live in requirements.txt,
+# which Streamlit Cloud installs on deployment).
+-r requirements.txt
+pytest>=7.0.0
+onnx>=1.14.0
+onnxscript>=0.1.0

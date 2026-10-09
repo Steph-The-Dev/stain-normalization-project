@@ -7,7 +7,7 @@ import cv2
 import logging
 import numpy as np
 import numpy.typing as npt
-from src.reinhard import normalize_stain_reinhard_hsv
+from src.normalizers.reinhard import normalize_stain_reinhard_hsv
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

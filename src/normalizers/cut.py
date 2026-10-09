@@ -23,7 +23,7 @@ from src.models.generator import ResNetGenerator
 from src.models.patch_nce import PatchNCELoss
 from src.models.ssim_loss import SSIMLoss
 from src.dataset import UnpairedStainDataset, get_default_transform
-from src.reinhard import get_tissue_mask_hsv
+from src.tissue_mask import get_tissue_mask_hsv
 
 
 def rgb_to_lab_torch(rgb: torch.Tensor) -> torch.Tensor:

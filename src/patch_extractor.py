@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from src.reinhard import get_tissue_mask_hsv, get_tissue_mask_luma
+from src.tissue_mask import get_tissue_mask_hsv, get_tissue_mask_luma
 
 
 def get_tissue_mask(img: npt.NDArray[np.uint8], method: str = "hsv") -> npt.NDArray[np.uint8]:

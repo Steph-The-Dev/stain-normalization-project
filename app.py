@@ -6,7 +6,7 @@ import tempfile
 import zipfile
 import io
 
-from src.reinhard import normalize_stain_reinhard_hsv, normalize_stain_reinhard_luma
+from src.normalizers.reinhard import normalize_stain_reinhard_hsv, normalize_stain_reinhard_luma
 from src.normalizers import ReinhardNormalizer, MacenkoNormalizer, CUTStainNormalizer
 from src.metrics import evaluate_normalization
 from src.ui_utils import (

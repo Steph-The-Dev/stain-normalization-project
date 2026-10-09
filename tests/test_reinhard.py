@@ -1,9 +1,8 @@
 import pytest
 import numpy as np
-from src.reinhard import (
-    get_tissue_mask_hsv, 
-    get_tissue_mask_luma,
-    normalize_stain_reinhard_hsv, 
+from src.tissue_mask import get_tissue_mask_hsv, get_tissue_mask_luma
+from src.normalizers.reinhard import (
+    normalize_stain_reinhard_hsv,
     normalize_stain_reinhard_luma
 )
 
@@ -65,3 +64,19 @@ def test_zero_division_protection_both_methods():
         
     except ZeroDivisionError:
         pytest.fail("Algorithm crashed on black images (ZeroDivisionError)!")
+
+
+# --- 3. API CONSISTENCY ---
+
+def test_class_and_functional_api_match():
+    """ReinhardNormalizer (used for full-res export) must match the functional API (used for previews)."""
+    from src.normalizers import ReinhardNormalizer
+
+    rng = np.random.default_rng(0)
+    src = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+    trg = rng.integers(0, 256, (64, 64, 3), dtype=np.uint8)
+
+    expected = normalize_stain_reinhard_hsv(src, trg, src_sat_thresh=15, target_sat_thresh=15)
+    actual = ReinhardNormalizer(mask_method="hsv", threshold=15).fit(trg).transform(src)
+
+    np.testing.assert_array_equal(actual, expected)
