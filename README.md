@@ -189,10 +189,12 @@ every push via [GitHub Actions](.github/workflows/tests.yml).
 
 ## 👨‍💻 About the Author
 
-**Stephan Pfeiffer** _Senior Imaging Expert | Data Science & Computer Vision Transition_ Combining 20 years of experience in high-end signal processing with cutting-edge AI methodologies.
+**Stephan Pfeiffer** | _Senior Imaging Expert | Data Science & Computer Vision Transition_  
+Combining 20 years of experience in high-end signal processing with cutting-edge AI methodologies.
 
-- **Strategy:** "Bridge Builder" – Connecting Domain Expertise with AI Implementation.
-- **Academic Path:** Preparing for **GSERM (University of St. Gallen)** and **MSc in Applied Information and Data Science (HSLU)**.
+- **Strategy:** "Bridge Builder" – Connecting deep domain expertise in imaging physics with robust AI implementations.
+- **Business Foundation:** Dipl.-Kaufmann (International Business Studies / Marketing-Management). Fluent in English & Spanish. I ensure that technical AI solutions always translate into measurable business value.
+- **Academic Path:** Currently pursuing an **MSc in Applied Data Science and AI** at HSLU, following the successful completion of the "Deep Learning: Fundamentals & Applications" program at GSERM (University of St. Gallen).
 - **Portfolio:** [stephthedev.de](https://www.stephthedev.de)
 
 ---
