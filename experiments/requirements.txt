@@ -1,0 +1,28 @@
+# Stain-Normalization-Experimente (Camelyon17-WILDS)
+# Getestet gedacht für Python 3.11 / 3.12.
+#
+# PyTorch: Unter Linux installiert "pip install torch" von PyPI bereits eine
+# CUDA-fähige Version. Unter Windows oder für eine bestimmte CUDA-Version zuerst
+# torch/torchvision nach https://pytorch.org/get-started/locally installieren,
+# danach diese Datei.
+
+# --- Deep Learning ---
+torch>=2.3
+torchvision>=0.18
+
+# --- Datensatz ---
+wilds>=2.0          # bringt ogb, outdated, pytz, tqdm mit
+pillow>=9.0
+
+# --- Numerik, Bild, Statistik ---
+numpy>=1.24
+scipy>=1.10
+scikit-image>=0.21  # rgb2hed / hed2rgb / rgb2lab
+scikit-learn>=1.3   # AUC, PCA, Herkunfts-Klassifikator
+pandas>=2.0
+
+# --- Auswertung und Notebooks ---
+matplotlib>=3.7
+jupyterlab>=4.0
+ipykernel>=6.0
+tqdm>=4.60
