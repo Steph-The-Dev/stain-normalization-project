@@ -38,3 +38,8 @@ data/processed/*
 
 # Streamlit (Falls du später API-Keys nutzt)
 .streamlit/secrets.toml
+# Experiments (Camelyon17-WILDS): dataset, model weights and intermediate files stay local
+experiments/data/
+experiments/models/
+experiments/.venv/
+experiments/results/*.pkl

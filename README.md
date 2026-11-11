@@ -29,7 +29,7 @@ their effects.
 | | |
 |---|---|
 | **Problem** | Color variation between labs/scanners ("domain shift") hurts the robustness of AI models in pathology. |
-| **What this project does** | Implements three stain-normalization methods behind one common interface, plus quantitative metrics and an interactive Streamlit app to compare them. |
+| **What this project does** | Implements three stain-normalization methods behind one common interface, plus quantitative metrics and an interactive Streamlit app to compare them. A separate experiment on Camelyon17-WILDS measures how much a new hospital costs a classifier and what normalization recovers ([`experiments/`](experiments/)). |
 | **Methods compared** | Reinhard (CIELAB statistics), Macenko (optical-density stain vectors), CUT (contrastive unpaired deep learning). |
 | **Status** | Research & demonstration tool — not clinically validated (see [Limitations](#️-limitations)). |
 
@@ -92,7 +92,7 @@ processing and in evaluation.
    $$P_{\text{out}} = (P_{\text{src}} - \mu_{\text{src}}) \cdot \frac{\sigma_{\text{trg}}}{\sigma_{\text{src}}} + \mu_{\text{trg}}$$
    *Statistics are computed on tissue pixels only; morphological mask refinement and alpha blending preserve the white glass background.*
 2. **Macenko Normalization (Optical Density SVD Decomposition)** — [`src/normalizers/macenko.py`](src/normalizers/macenko.py)  
-   Converts RGB pixels into Optical Density (OD) space and uses SVD to estimate hematoxylin & eosin stain vectors, then matches stain concentrations to the target. *Uses the same tissue masking for cleaner stain-vector estimation and background preservation.*
+   Converts RGB pixels into Optical Density (OD) space and uses SVD to estimate hematoxylin & eosin stain vectors, then matches stain concentrations to the target. *Uses the same tissue masking for cleaner stain-vector estimation and background preservation. Very dark pixels (brightest channel < 60) are excluded from the stain-vector estimate: in the Camelyon17 experiment they biased the hematoxylin vector in 16 of 50 slides.*
 3. **Contrastive Unpaired Translation (CUT + SSIM)** — [`src/normalizers/cut.py`](src/normalizers/cut.py)  
    A ResNet generator trained with PatchNCE contrastive loss and a structural SSIM loss. Nearest-neighbor upsampling avoids checkerboard artifacts; Gaussian-feathered alpha matting gives smooth tissue-to-background transitions. Cosine-annealing LR and color-jitter augmentation for stable training. In the app, the model is trained on the fly on the selected image pair (CPU-friendly, small network).
 
@@ -111,27 +111,43 @@ processing and in evaluation.
 
 ## 📊 Current results
 
-The repository currently demonstrates the effect of different stain
-normalization methods on histopathological images. The focus is on visual
-and statistical comparison (SSIM, PSNR, CIELAB ΔL/Δab, RGB parade) rather
-than a clinical validation study.
+**Interactive comparison (app).** The app compares the three methods visually
+and statistically (SSIM, PSNR, CIELAB ΔL/Δab, RGB parade):
 
-Initial observations:
-
-- Reinhard normalization reduces global color distribution differences.
-- Macenko normalization aims to align stain-vector characteristics.
+- Reinhard normalization reduces global color distribution differences, but also copies the tissue mix of the reference.
+- Macenko normalization aligns the stain colors and keeps the stain amounts.
 - CUT-based normalization can adapt local appearance, but may introduce
   artifacts or alter biologically relevant details.
 
-A systematic cross-domain evaluation (e.g. downstream classifier performance
-on data from unseen labs) is not yet part of this repository.
+**Cross-domain experiment ([`experiments/`](experiments/)).** Tumor/normal
+classification on Camelyon17-WILDS patches with a ResNet-18, trained on
+hospitals 0, 3, 4 and tested on hospitals 1 and 2. Accuracy in %, mean of
+three runs:
+
+| Training | Variant | Known hospitals | Unseen hospitals |
+|---|---|---|---|
+| From scratch | No protection | 95.0 | 74.1 |
+| | HED color augmentation | 92.2 | 82.4 |
+| | Macenko | 95.1 | 86.6 |
+| ImageNet-pretrained | No protection | 85.7 | 88.7 |
+| | HED color augmentation | 93.2 | 90.8 |
+| | Macenko | 91.9 | 91.4 |
+
+- Without pretraining, a new hospital costs 21 points; Macenko recovers 12.5, almost all of it in the color outlier (hospital 2).
+- With pretraining the gap disappears. Macenko still adds 2.7 points on average, but slightly lowers accuracy in hospital 1.
+- Under artificial stain shifts (σ = 0.5), 17.1 % of predictions flip without protection, 7.6 % with HED augmentation and 1.9 % with Macenko.
+
+This is a small replication on one public dataset, not a clinical study.
+Details, limitations and all numbers: [`experiments/README.md`](experiments/README.md) (in German).
 
 ---
 
 ## ⚠️ Limitations
 
 This project is a research and demonstration tool, not a diagnostic system.
-Stain normalization does not automatically improve diagnostic performance.
+Stain normalization does not automatically improve diagnostic performance:
+in the cross-domain experiment it helps on average but lowers accuracy slightly
+in one of the two unseen hospitals.
 It can also reduce biologically meaningful color variation if applied too
 aggressively.
 
@@ -177,24 +193,26 @@ every push via [GitHub Actions](.github/workflows/tests.yml).
 - [x] Implementation of Reinhard Color Transfer (NumPy/OpenCV)
 - [x] Implementation of Macenko SVD Stain Vector Matrix Normalizer
 - [x] Quantitative Evaluation Benchmark (SSIM, PSNR, CIELAB Delta L/ab)
-- [x] Automated batch processing for large-scale WSI (Whole Slide Imaging)
+- [x] Batch processing of image folders and tissue-aware patch extraction
 - [x] Integration of PyTorch-based Tensor processing & Unpaired Dataset Loader
 - [x] Research: Unpaired Image-to-Image Translation using Contrastive Unpaired Translation (CUT) & SSIM Loss
-- [x] Artifact-free Neural Generator Architecture (Nearest-Neighbor Upsampling, Continuous Sigmoidal Alpha Matting)
+- [x] Generator without checkerboard artifacts (Nearest-Neighbor Upsampling, Continuous Sigmoidal Alpha Matting)
 - [x] Algorithmic Quality Improvements (Tissue-Mask Background Preservation, Cosine Annealing LR, Color Jitter Augmentation)
 - [x] ONNX Model Export & Streamlit Cloud Deployment Pipeline
-- [ ] Cross-domain evaluation: effect of each normalizer on a downstream classifier across labs
+- [x] Cross-domain evaluation on Camelyon17-WILDS: Macenko vs. HED augmentation on a downstream classifier ([`experiments/`](experiments/))
+- [x] Dark-pixel filter for robust Macenko stain-vector estimation
+- [ ] Reinhard and CUT in the cross-domain evaluation
 
 ---
 
 ## 👨‍💻 About the Author
 
-**Stephan Pfeiffer** | _Senior Imaging Expert | Data Science & Computer Vision Transition_  
-Combining 20 years of experience in high-end signal processing with cutting-edge AI methodologies.
+**Stephan Pfeiffer** | _Senior Imaging & Color Science Expert | MSc Candidate in Applied Data Science & AI (HSLU)_
 
-- **Strategy:** "Bridge Builder" – Connecting deep domain expertise in imaging physics with robust AI implementations.
-- **Business Foundation:** Dipl.-Kaufmann (International Business Studies / Marketing-Management). Fluent in English & Spanish. I ensure that technical AI solutions always translate into measurable business value.
-- **Academic Path:** Currently pursuing an **MSc in Applied Data Science and AI** at HSLU, following the successful completion of the "Deep Learning: Fundamentals & Applications" program at GSERM (University of St. Gallen).
+More than 20 years as a colorist and editor in broadcast and film post-production: matching cameras, color spaces and signal chains. This project applies that experience to color variation in digital pathology.
+
+- **Studies:** MSc in Applied Data Science and AI at HSLU (since September 2026); "Deep Learning: Fundamentals & Applications" at GSERM (University of St. Gallen).
+- **Background:** Dipl.-Kaufmann (International Business Studies). English and Spanish.
 - **Portfolio:** [stephthedev.de](https://www.stephthedev.de)
 
 ---

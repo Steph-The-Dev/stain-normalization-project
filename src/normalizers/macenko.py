@@ -33,10 +33,18 @@ def get_stain_matrix_macenko(
     od: npt.NDArray[np.float64], 
     mask: npt.NDArray[np.uint8],
     beta: float = 0.15,
-    alpha: float = 1.0
+    alpha: float = 1.0,
+    dark_threshold: Optional[int] = 60,
 ) -> npt.NDArray[np.float64]:
     """
     Extracts 2x3 Stain Matrix (Hematoxylin and Eosin vectors) using SVD and robust percentile projection.
+
+    Pixels whose brightest channel is below ``dark_threshold`` (0-255) are ignored. Very dark,
+    nearly neutral pixels (scan borders, ink, folds) lie close to the grey axis in OD space and
+    pull the hematoxylin vector towards it; already 1 % of such pixels can bias the estimate,
+    because the stain directions come from the 1st/99th angle percentiles. The HSV tissue mask
+    does not catch them: HSV saturation is relative to brightness, so a dark, almost grey pixel
+    still has a high saturation. Set ``dark_threshold=None`` to disable the filter.
     """
     od_flat = od.reshape(-1, 3)
     mask_flat = mask.reshape(-1) > 0
@@ -45,7 +53,12 @@ def get_stain_matrix_macenko(
     # Filter low OD background pixels
     od_tissue = od_tissue[np.all(od_tissue > beta, axis=1)]
 
-    # Standard clinical H&E reference stain vectors (Hematoxylin & Eosin)
+    # Filter very dark pixels: brightest channel = smallest OD (OD = -log10(I / 255))
+    if dark_threshold is not None:
+        od_dark = -np.log10(dark_threshold / 255.0)
+        od_tissue = od_tissue[od_tissue.min(axis=1) < od_dark]
+
+    # Fallback: H&E reference stain vectors from Ruifrok & Johnston (2001)
     default_stain_matrix = np.array([
         [0.65, 0.70, 0.29],  # Hematoxylin
         [0.07, 0.99, 0.11],  # Eosin
@@ -105,10 +118,13 @@ class MacenkoNormalizer(BaseStainNormalizer):
     Macenko Stain Normalizer using SVD on Optical Density space.
     """
 
-    def __init__(self, saturation_threshold: int = 15, beta: float = 0.15) -> None:
+    def __init__(
+        self, saturation_threshold: int = 15, beta: float = 0.15, dark_threshold: Optional[int] = 60
+    ) -> None:
         super().__init__()
         self.saturation_threshold = saturation_threshold
         self.beta = beta
+        self.dark_threshold = dark_threshold
         self.target_stain_matrix: Optional[npt.NDArray[np.float64]] = None
         self.target_max_concentrations: Optional[npt.NDArray[np.float64]] = None
 
@@ -121,7 +137,7 @@ class MacenkoNormalizer(BaseStainNormalizer):
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-        self.target_stain_matrix = get_stain_matrix_macenko(target_od, mask, beta=self.beta)
+        self.target_stain_matrix = get_stain_matrix_macenko(target_od, mask, beta=self.beta, dark_threshold=self.dark_threshold)
 
         target_od_flat = target_od.reshape(-1, 3)
         target_concentrations, _, _, _ = np.linalg.lstsq(
@@ -146,7 +162,7 @@ class MacenkoNormalizer(BaseStainNormalizer):
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
-        source_stain_matrix = get_stain_matrix_macenko(source_od, mask, beta=self.beta)
+        source_stain_matrix = get_stain_matrix_macenko(source_od, mask, beta=self.beta, dark_threshold=self.dark_threshold)
 
         h, w, _ = source_rgb.shape
         source_od_flat = source_od.reshape(-1, 3)
