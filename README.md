@@ -59,6 +59,21 @@ streamlit run app.py
 In the app, tick **"🧪 Use Built-in Demo Samples"** to try it immediately
 with the bundled sample images in `data/raw/` — no upload required.
 
+The demo pair consists of 1024 × 1024 px crops from two CAMELYON17 whole-slide
+images from different hospitals (source: centre 2 / UMCU, target: centre 0 / RUMC),
+so the app shows a real inter-site stain shift. To regenerate them, or to pick
+other slides, sizes or magnifications:
+
+```bash
+pip install tifffile imagecodecs "fsspec[http]" aiohttp
+python scripts/fetch_demo_tiles.py            # --source / --target / --size / --level / --seed
+```
+
+The script reads only the required tiles via HTTP range requests, so no
+multi-GB slide download is needed. Data: CAMELYON dataset (Litjens et al.,
+*GigaScience* 2018, [doi:10.1093/gigascience/giy065](https://doi.org/10.1093/gigascience/giy065)),
+via the [AWS Registry of Open Data](https://registry.opendata.aws/camelyon), CC0.
+
 ### Use it from Python
 
 All normalizers share a scikit-learn-style `fit` / `transform` interface
